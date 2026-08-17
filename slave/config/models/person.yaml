@@ -1,0 +1,38 @@
+# Static model configuration for model_type: person.
+# jobs.yaml carries only *which* job/stream/model runs — permanent
+# model behaviour (classes, thresholds, resolution) belongs here.
+
+model_type: person
+
+classes:
+  - person
+num_classes: 1
+listsize: 65          # num_classes + 64 DFL channels
+
+thresholds:
+  obj_thresh: 0.20
+  nms_thresh: 0.65
+
+input:
+  default_size: 640
+  large_size: 1024
+  large_size_keyword: "1024"   # model_name containing this token uses large_size
+  pad_value: 114
+
+pt:
+  device: auto         # auto | cpu | cuda:0
+  half: false
+
+nb:
+  # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
+  # Do NOT reuse VIM3/Electron reference values here — these must match
+  # the actual board SDK installed on the A311D target.
+  level: 0
+  device_id: 0
+  # Filename only, resolved against processes/worker/models/person/
+  # (same directory as the .nb model file itself).
+  library_file: person.so
+
+so:
+  # Native .so inference library options (see runtimes/npu/so_runtime.py).
+  device_id: 0

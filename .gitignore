@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Slave: model weight files (per-deployment, not tracked)
+slave/processes/worker/models/person/*.pt
+slave/processes/worker/models/person/*.nb
+
+# Slave: runtime-generated (recreated automatically on startup)
+slave/logging_output/
+slave/storage/tmp/
