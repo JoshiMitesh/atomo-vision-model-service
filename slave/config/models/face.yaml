@@ -1,0 +1,5 @@
+# Placeholder only — Face Detection is out of scope for this implementation.
+# Do not add runtime support until explicitly required (see CLAUDE.md, AGENTS.md).
+
+model_type: face
+status: not_implemented
