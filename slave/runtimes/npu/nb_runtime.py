@@ -2,16 +2,24 @@
 
 The reference implementation (`rtsp_30fps_realtime(1).py`) initializes
 KSNN/ASNN with values tuned for VIM3/Electron boards. Those values must
-NOT be reused for A311D (CLAUDE.md §10) — this module is the single
-place where the actual A311D-installed SDK is loaded and called, so
-swapping SDKs never touches detector code.
+NOT be blindly reused for A311D (CLAUDE.md §10) — this module is the
+single place where the actual A311D-installed SDK is loaded and
+called, so swapping SDKs never touches detector code.
 
-Fill in `_load_sdk()` / `_init_impl()` / `_infer_impl()` with the
-board's real API once the A311D SDK is available in this environment.
+For *this* physically-confirmed board (hostname `electron`, A311D
+running the ASNN SDK — see `~/detection.py`, `~/p2.py`,
+`~/face_attrs_npu_rtsp.py` on the board, all of which use
+`from asnn.api import asnn` and call `asnn("Electron")`), ASNN is the
+real, working API — not a placeholder value copied from the reference.
+KSNN is tried first only because the code is written to work on either
+SDK; it isn't installed on this board and will simply fall through to
+ASNN. If this runtime is ever deployed to a KSNN-only board, `board`
+below should be overridden accordingly (it's only meaningful for ASNN).
 """
 
 from __future__ import annotations
 
+import importlib
 from typing import Any, List
 
 import numpy as np
@@ -33,7 +41,7 @@ def _load_sdk() -> Any:
     package name(s) for this board; extend this list with whatever the
     A311D BSP/SDK documentation specifies.
     """
-    for module_name in ("ksnn.api", "asnn.api"):
+    for module_name in ("asnn.api", "ksnn.api"):
         try:
             module = __import__(module_name, fromlist=["*"])
             log.info("loaded NPU SDK module '%s'", module_name)
@@ -52,24 +60,38 @@ class NbRuntime:
     runs inference on the A311D NPU.
     """
 
-    def __init__(self, model_path: str, library_path: str | None, level: int = 0, device_id: int = 0) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        library_path: str | None,
+        level: int = 0,
+        device_id: int = 0,
+        board: str = "Electron",
+    ) -> None:
         self._model_path = model_path
         self._library_path = library_path
         self._level = level
         self._device_id = device_id
+        self._board = board
         self._handle: Any = None
+        self._types: Any = None
         self._init()
 
     def _init(self) -> None:
         sdk = _load_sdk()
-        # NOTE: the exact constructor/init call is board-SDK specific.
-        # Replace this with the real A311D API, e.g. something shaped like:
-        #   self._handle = sdk.KSNN_API()  # or vendor equivalent
-        #   self._handle.nn_init(library=self._library_path, model=self._model_path, level=self._level)
-        raise NotImplementedError(
-            "NbRuntime._init: wire up the actual A311D NPU SDK call here "
-            f"(model={self._model_path}, library={self._library_path}, "
-            f"level={self._level}, device_id={self._device_id})."
+        self._types = importlib.import_module(sdk.__name__.rsplit(".", 1)[0] + ".types")
+
+        if sdk.__name__.startswith("ksnn"):
+            self._handle = sdk.KSNN()
+        else:
+            # ASNN's constructor takes the board identifier (see
+            # ~/p2.py on the board: `asnn("Electron")`), unlike KSNN.
+            self._handle = sdk.asnn(self._board)
+
+        self._handle.nn_init(library=self._library_path, model=self._model_path, level=self._level)
+        log.info(
+            "NPU handle initialized (sdk=%s, board=%s, model=%s, library=%s, level=%s)",
+            sdk.__name__, self._board, self._model_path, self._library_path, self._level,
         )
 
     def infer(self, input_tensor: np.ndarray) -> List[np.ndarray]:
@@ -78,9 +100,14 @@ class NbRuntime:
         """
         if self._handle is None:
             raise NpuSdkUnavailableError("NbRuntime used before successful init")
-        # NOTE: replace with the real inference call, e.g.:
-        #   return self._handle.nn_inference([input_tensor], platform="ONNX", reorder="2 1 0", ...)
-        raise NotImplementedError("NbRuntime.infer: wire up the actual A311D NPU inference call here")
+        data = self._handle.nn_inference(
+            [input_tensor],
+            platform="ONNX",
+            reorder="2 1 0",
+            output_tensor=3,
+            output_format=self._types.output_format.OUT_FORMAT_FLOAT32,
+        )
+        return list(data)
 
     def release(self) -> None:
         if self._handle is not None:

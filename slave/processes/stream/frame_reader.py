@@ -30,6 +30,18 @@ class FrameReader:
         self._thread = threading.Thread(target=self._run, name=f"frame-reader-{job_id}", daemon=True)
         self._log = get_logger(__name__, job_id=job_id)
 
+        self._status_lock = threading.Lock()
+        self._status = "offline"
+
+    def get_status(self) -> str:
+        """Camera connection status: 'online', 'reconnecting', or 'offline'."""
+        with self._status_lock:
+            return self._status
+
+    def _set_status(self, status: str) -> None:
+        with self._status_lock:
+            self._status = status
+
     def start(self) -> None:
         self._thread.start()
 
@@ -47,14 +59,17 @@ class FrameReader:
     def _run(self) -> None:
         if not self._client.connect():
             self._log.warning("initial RTSP connect failed, will retry")
+            self._set_status("offline")
 
         while not self._stop_event.is_set():
             ok, image = self._client.read()
             if not ok or image is None:
                 self._log.warning("RTSP read failed, reconnecting")
+                self._set_status("reconnecting")
                 self._reconnect_with_backoff()
                 continue
 
+            self._set_status("online")
             frame = Frame(
                 job_id=self._job_id,
                 frame_id=self._frame_ids.next(),
@@ -63,6 +78,7 @@ class FrameReader:
             )
             self._push_latest(frame)
 
+        self._set_status("offline")
         self._log.info("frame reader stopped")
 
     def _push_latest(self, frame: Frame) -> None:
@@ -84,4 +100,5 @@ class FrameReader:
             if self._client.reconnect():
                 self._log.info("RTSP reconnected")
                 return
+        self._set_status("offline")
         self._log.error("RTSP reconnect failing repeatedly, will keep retrying")

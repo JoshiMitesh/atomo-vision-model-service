@@ -7,10 +7,33 @@ Run from the repository root (the parent of this `slave/` package):
 
 from __future__ import annotations
 
-import asyncio
 import os
+
+# Must happen before numpy/cv2 are imported anywhere in the process —
+# both libraries read these once at load time. Without this, each
+# spawns one thread per CPU core for its own internal parallelism
+# (BLAS ops, OpenCV's parallel_for_), which on a multi-core board adds
+# up to far more threads than cores once a job is running (NPU driver
+# threads + RTSP decode + video encode + these all fighting for the
+# same cores). Confirmed against this exact board's own working
+# reference scripts (~/detection.py, ~/face_attrs_npu_rtsp.py) — our
+# per-frame arrays (DFL/softmax/NMS) are small enough that
+# single-threaded BLAS is not a bottleneck; multi-threading them was
+# pure overhead.
+for _env_var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ.setdefault(_env_var, "1")
+
+import asyncio
 import signal
 import threading
+
+import cv2
 
 from slave.config import load_slave_config
 from slave.logging.log_manager import LogManager
@@ -25,6 +48,7 @@ from slave.processes.model.model_manager import ModelManager
 from slave.processes.model.model_registry import build_default_registry
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.publisher.publisher import Publisher
+from slave.processes.publisher.upload_publisher import UploadPublisher
 from slave.processes.subscriber.subscriber import NatsSubscriber
 from slave.processes.worker.worker_factory import WorkerServices
 from slave.processes.worker.worker_manager import WorkerManager
@@ -39,6 +63,12 @@ def _bootstrap_jobs_yaml(path: str) -> None:
 
 
 def main() -> None:
+    # Same reasoning as the env vars above — caps OpenCV's own internal
+    # thread pool (parallel_for_, used by resize/rectangle/putText/
+    # VideoWriter/VideoCapture decode), which is separate from BLAS and
+    # not covered by the OMP/OPENBLAS/MKL env vars.
+    cv2.setNumThreads(1)
+
     config = load_slave_config()
 
     log_dir = config.resolve_path(config.logging.dir)
@@ -53,13 +83,15 @@ def main() -> None:
     publisher = Publisher(config.nats)
     publisher.start()
     detection_publisher = DetectionPublisher(publisher, config.nats.detection_subject)
+    upload_publisher = UploadPublisher(publisher, config.nats.upload_subject)
 
     minio_client = MinioClientWrapper(config.minio)
-    frame_uploader = FrameUploader(minio_client)
-    video_uploader = VideoUploader(minio_client)
+    frame_uploader = FrameUploader(minio_client, upload_publisher)
+    video_uploader = VideoUploader(minio_client, upload_publisher)
 
     services = WorkerServices(
         models_root=os.path.join(REPO_ROOT, "processes", "worker", "models"),
+        config_root=config.resolve_path("config"),
         detection_publisher=detection_publisher,
         frame_uploader=frame_uploader,
         video_uploader=video_uploader,
@@ -77,14 +109,24 @@ def main() -> None:
     job_runner.start()
 
     # NATS subscriber runs its own asyncio loop in a background thread.
-    subscriber_stop_event = asyncio.Event()
+    # The Event must be constructed on subscriber_loop (inside the
+    # subscriber thread, after set_event_loop), not on the main thread's
+    # loop context — otherwise asyncio.Event.wait()/set() raise
+    # "attached to a different loop" across threads.
     subscriber_loop = asyncio.new_event_loop()
+    subscriber_stop_event: asyncio.Event | None = None
 
     def _subscriber_stop_setter() -> None:
-        subscriber_loop.call_soon_threadsafe(subscriber_stop_event.set)
+        def _set() -> None:
+            if subscriber_stop_event is not None:
+                subscriber_stop_event.set()
+
+        subscriber_loop.call_soon_threadsafe(_set)
 
     def _run_subscriber() -> None:
+        nonlocal subscriber_stop_event
         asyncio.set_event_loop(subscriber_loop)
+        subscriber_stop_event = asyncio.Event()
         subscriber_loop.run_until_complete(_subscriber_main())
 
     async def _subscriber_main() -> None:

@@ -14,6 +14,7 @@ from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.stream.stream_connector import build_stream_url
 from slave.processes.video.video_manager import VideoManager
+from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.person.nb.person_nb_detector import PersonNbDetector
 
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
@@ -28,11 +29,13 @@ class PersonNbWorker:
         detection_publisher: DetectionPublisher,
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
+        face_controller: FaceController,
     ) -> None:
         self._job = job
         self._detection_publisher = detection_publisher
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
+        self._face_controller = face_controller
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, job.model_name)
@@ -41,6 +44,7 @@ class PersonNbWorker:
         self._detector = PersonNbDetector(model_path, library_path, model_config, job.model_name)
 
         url = build_stream_url(job.master_ip, job.stream_port, job.stream_name)
+        self._camera_url = url
         self._frame_reader = FrameReader(job.job_id, url)
 
         self._stop_event = threading.Event()
@@ -71,8 +75,18 @@ class PersonNbWorker:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
-        detections = self._detector.detect(frame.image)
-        result = DetectionResult(job_id=self._job.job_id, frame_id=frame.frame_id, detections=detections)
+        person_detections = self._detector.detect(frame.image)
+        face_detections = self._face_controller.update(frame.image, person_detections)
+        detections = person_detections + face_detections
+
+        result = DetectionResult(
+            job_id=self._job.job_id,
+            frame_id=frame.frame_id,
+            camera_name=self._job.stream_name,
+            camera_url=self._camera_url,
+            camera_status=self._frame_reader.get_status(),
+            detections=detections,
+        )
         self._detection_publisher.publish_detection(result)
 
         if result.has_detections:
@@ -90,6 +104,10 @@ class PersonNbWorker:
             self._detector.release()
         except Exception:
             self._log.exception("error releasing detector")
+        try:
+            self._face_controller.release()
+        except Exception:
+            self._log.exception("error releasing face controller")
         try:
             self._video_manager.close()
         except Exception:

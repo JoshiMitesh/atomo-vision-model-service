@@ -23,6 +23,7 @@ LISTSIZE = NUM_CLS + 4 * REG_MAX  # 65
 
 class PersonSoDetector:
     def __init__(self, library_path: str, model_config: dict, model_name: str) -> None:
+        self._model_name = model_name
         thresholds = model_config.get("thresholds", {})
         self._obj_thresh = float(thresholds.get("obj_thresh", 0.20))
         self._nms_thresh = float(thresholds.get("nms_thresh", 0.65))
@@ -63,7 +64,13 @@ class PersonSoDetector:
         scores = scores[keep]
 
         return [
-            Detection(class_id=0, class_name=CLASSES[0], confidence=float(score), bbox=tuple(box.tolist()))
+            Detection(
+                class_id=0,
+                class_name=CLASSES[0],
+                confidence=float(score),
+                bbox=tuple(box.tolist()),
+                model_name=self._model_name,
+            )
             for box, score in zip(boxes, scores)
         ]
 

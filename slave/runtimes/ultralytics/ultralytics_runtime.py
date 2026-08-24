@@ -21,14 +21,20 @@ class UltralyticsRuntime:
         self._half = half
 
     def infer(self, frame: np.ndarray, conf: float, iou: float) -> Any:
-        return self._model.predict(
+        predict_kwargs = dict(
             source=frame,
             conf=conf,
             iou=iou,
             device=self._device,
-            half=self._half,
             verbose=False,
-        )[0]
+        )
+        # Only pass `half` when actually requesting it — some Ultralytics
+        # versions emit a "deprecated, use quantize" warning on *every*
+        # predict() call whenever this kwarg is present at all, even
+        # half=False, which floods the log at inference framerate.
+        if self._half:
+            predict_kwargs["half"] = True
+        return self._model.predict(**predict_kwargs)[0]
 
     def release(self) -> None:
         self._model = None

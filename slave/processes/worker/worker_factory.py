@@ -19,6 +19,7 @@ from slave.processes.minio.video_uploader import VideoUploader
 from slave.processes.model.model_resolver import ResolvedModel
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.video.video_manager import VideoManager
+from slave.processes.worker.face.face_factory import build_face_controller
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class WorkerServices:
     """Process-wide collaborators shared (read-only) across all jobs."""
 
     models_root: str  # .../processes/worker/models
+    config_root: str  # .../config — needed to resolve config/models/face.yaml
     detection_publisher: DetectionPublisher
     frame_uploader: FrameUploader
     video_uploader: VideoUploader
@@ -51,6 +53,16 @@ def create_worker(
         fps=services.video_fps,
     )
 
+    # Face detection is auto-triggered by the Person worker itself, on
+    # the same stream/frame — it is never a separate jobs.yaml entry,
+    # so it's wired in here rather than through model_registry.py.
+    face_controller = build_face_controller(
+        job_id=job.job_id,
+        model_extension=resolved.model_extension,
+        models_root=services.models_root,
+        config_root=services.config_root,
+    )
+
     return worker_cls(
         job=job,
         model_config=model_config,
@@ -58,4 +70,5 @@ def create_worker(
         detection_publisher=services.detection_publisher,
         frame_uploader=services.frame_uploader,
         video_manager=video_manager,
+        face_controller=face_controller,
     )

@@ -1,5 +1,47 @@
-# Placeholder only — Face Detection is out of scope for this implementation.
-# Do not add runtime support until explicitly required (see CLAUDE.md, AGENTS.md).
-
 model_type: face
-status: not_implemented
+
+classes:
+  - face
+num_classes: 1
+# NOT num_classes + 64 DFL channels like person.yaml — face.nb/.so are a
+# direct box-regression export (no DFL head), confirmed via this model's
+# ONNX output shapes ([1,5,80,80] etc.). See face_nb_detector.py's
+# docstring. listsize = num_classes(1) + 4 direct l/t/r/b offsets.
+listsize: 5
+
+thresholds:
+  obj_thresh: 0.35
+  nms_thresh: 0.45
+
+input:
+  default_size: 640
+  large_size: 1024
+  large_size_keyword: "1024"   # model_name containing this token uses large_size
+  pad_value: 114
+
+trigger:
+  # How long (seconds) Face detection keeps running after the Person
+  # worker on this job stops reporting any person in frame, before
+  # auto-releasing the Face model (10-15s grace window).
+  off_timeout_sec: 10
+  # Run Face inference every Nth frame while active (>=1) — a coarser
+  # interval trades face-detection latency for CPU headroom.
+  inference_frame_interval: 2
+
+pt:
+  # Resolved flat against processes/worker/models/face/ (same
+  # convention as person.pt — see that folder's README.md).
+  model_file: face.pt
+  device: auto          # auto | cpu | cuda:0
+  half: false
+
+nb:
+  model_file: face.nb
+  library_file: face.so   # .nb companion library, resolved against the same folder
+  level: 0
+  device_id: 0
+  board: Electron
+
+so:
+  library_file: face.so   # here .so IS the model+library, same as person.so
+  device_id: 0
