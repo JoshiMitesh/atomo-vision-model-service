@@ -19,16 +19,19 @@ from slave.processes.device.telemetry import sample_telemetry, uptime_seconds
 log = get_logger(__name__)
 
 
-def execute_command(cmd: Dict[str, Any]) -> Dict[str, Any]:
+def execute_command(cmd: Dict[str, Any], slave_id: str) -> Dict[str, Any]:
     op = cmd.get("op")
     params = cmd.get("params", {})
 
     if op == "get_status":
-        telemetry = sample_telemetry()
+        telemetry = sample_telemetry(slave_id)
         return {
             "status": "ok",
             "op": op,
             "detail": {
+                "slave_id": telemetry.get("slave_id"),
+                "slave_name": telemetry.get("slave_name"),
+                "ip": telemetry.get("ip"),
                 "cpu": telemetry.get("cpu"),
                 "disk": telemetry.get("disk"),
                 "uptime_s": uptime_seconds(),

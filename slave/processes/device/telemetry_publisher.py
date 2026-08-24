@@ -57,10 +57,12 @@ async def publish_event(js, subject: str, event: dict) -> None:
         log.exception("failed to publish event on %s: %s", subject, event)
 
 
-async def telemetry_loop(js, subject: str, interval_seconds: float, stop_event: asyncio.Event) -> None:
+async def telemetry_loop(
+    js, subject: str, interval_seconds: float, stop_event: asyncio.Event, slave_id: str
+) -> None:
     log.info("publishing telemetry on %s every %ss", subject, interval_seconds)
     while not stop_event.is_set():
-        payload = sample_telemetry()
+        payload = sample_telemetry(slave_id)
         try:
             await js.publish(subject, json.dumps(payload).encode())
         except Exception as exc:

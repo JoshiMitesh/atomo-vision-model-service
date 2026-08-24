@@ -30,6 +30,7 @@ async def heartbeat_loop(
     key: str,
     interval_seconds: float,
     stop_event: asyncio.Event,
+    slave_id: str,
 ) -> None:
     """Never raises out of this loop — a JetStream/KV problem here must
     not take down the device agent's other loops or its NATS connection
@@ -46,7 +47,7 @@ async def heartbeat_loop(
         try:
             if kv is None:
                 kv = await _get_or_create_kv(js, bucket_name, ttl_seconds)
-            payload = sample_telemetry()
+            payload = sample_telemetry(slave_id)
             await kv.put(key, json.dumps(payload).encode())
         except Exception as exc:
             log.warning("heartbeat failed (will retry): %s", exc)

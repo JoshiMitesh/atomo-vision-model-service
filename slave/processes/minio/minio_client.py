@@ -33,3 +33,7 @@ class MinioClientWrapper:
     @property
     def client(self) -> Minio:
         return self._client
+
+    def object_url(self, key: str) -> str:
+        scheme = "https" if self._config.secure else "http"
+        return f"{scheme}://{self._config.endpoint}/{self._config.bucket}/{key}"

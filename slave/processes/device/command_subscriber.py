@@ -16,8 +16,9 @@ log = get_logger(__name__)
 
 
 def build_command_handler(device_id: str):
-    """Return an async NATS message callback bound to this device_id
-    (used only for logging context).
+    """Return an async NATS message callback bound to this device_id —
+    used for logging context and passed through to execute_command()
+    so status responses can identify which device answered.
     """
 
     async def _handler(msg) -> None:
@@ -29,7 +30,7 @@ def build_command_handler(device_id: str):
 
         log.info("device_id=%s received command: %s", device_id, cmd)
         try:
-            result = execute_command(cmd)
+            result = execute_command(cmd, device_id)
         except Exception:
             log.exception("command execution failed for device_id=%s", device_id)
             result = {"status": "error", "op": cmd.get("op"), "detail": "internal error"}

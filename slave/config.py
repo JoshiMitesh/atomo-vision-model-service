@@ -24,6 +24,7 @@ class NatsConfig:
     job_subject: str
     stop_subject: str
     detection_subject: str
+    upload_subject: str
     reconnect_wait_seconds: float = 2.0
     user: Optional[str] = None
     password: Optional[str] = None
@@ -115,6 +116,7 @@ def load_slave_config(path: str | None = None) -> SlaveConfig:
             job_subject=nats_raw["job_subject"],
             stop_subject=nats_raw["stop_subject"],
             detection_subject=nats_raw["detection_subject"],
+            upload_subject=nats_raw["upload_subject"],
             reconnect_wait_seconds=float(nats_raw.get("reconnect_wait_seconds", 2.0)),
             user=nats_raw.get("user"),
             password=nats_raw.get("password"),

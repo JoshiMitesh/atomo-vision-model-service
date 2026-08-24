@@ -7,11 +7,12 @@ nats:
   job_subject: slave.jobs.start
   stop_subject: slave.jobs.stop
   detection_subject: master.detections
+  upload_subject: master.uploads
   reconnect_wait_seconds: 2
   # Optional auth — leave both null for an unauthenticated NATS server
   # (matches current behavior). Set per-device before deploying.
-  user: null
-  password: null
+  user: slave01
+  password: "123"
 
 # Device identity + timing for the health/telemetry/command channel
 # (processes/device/) — independent of job control above. Set site_id

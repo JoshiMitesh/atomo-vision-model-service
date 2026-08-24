@@ -98,10 +98,10 @@ class DeviceAgent:
 
         try:
             await asyncio.gather(
-                telemetry_loop(js, data_subject, dc.data_interval_seconds, self._stop_event),
+                telemetry_loop(js, data_subject, dc.data_interval_seconds, self._stop_event, dc.slave_id),
                 heartbeat_loop(
                     js, dc.health_bucket, dc.health_ttl_seconds,
-                    f"{dc.site_id}.{dc.slave_id}", dc.heartbeat_interval_seconds, self._stop_event,
+                    f"{dc.site_id}.{dc.slave_id}", dc.heartbeat_interval_seconds, self._stop_event, dc.slave_id,
                 ),
             )
         finally:

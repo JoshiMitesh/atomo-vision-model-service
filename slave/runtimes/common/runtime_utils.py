@@ -72,6 +72,39 @@ def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
     return exp / np.sum(exp, axis=axis, keepdims=True)
 
 
+def reshape_npu_output(raw: np.ndarray, listsize: int) -> np.ndarray:
+    """Normalize one raw NPU output tensor into (1, listsize, grid, grid)
+    — the shape decode_grid() expects.
+
+    The vendor SDK (KSNN/ASNN) does not guarantee outputs already come
+    back in that shape — the reference NPU scripts on the board (e.g.
+    `parse_npu_output()` in p2.py) reshape/transpose each raw tensor
+    before decoding, and this is the same step. Handles tensors already
+    shaped (1, listsize, H, W) or (listsize, H, W) or (H, W, listsize)
+    unchanged; anything else (including flat) is reshaped assuming a
+    square HxW grid, which holds for this Person model's three
+    detection heads.
+    """
+    arr = np.asarray(raw, dtype=np.float32)
+
+    if arr.ndim == 4 and arr.shape[1] == listsize:
+        return arr
+    if arr.ndim == 3:
+        if arr.shape[0] == listsize:
+            return arr[np.newaxis, ...]
+        if arr.shape[-1] == listsize:
+            return arr.transpose(2, 0, 1)[np.newaxis, ...]
+
+    total = arr.size
+    if total % listsize != 0:
+        raise ValueError(f"NPU output size {total} not divisible by listsize {listsize}")
+    grid_area = total // listsize
+    grid = int(round(grid_area ** 0.5))
+    if grid * grid != grid_area:
+        raise ValueError(f"NPU output does not form a square grid: {grid_area} elements per channel")
+    return arr.reshape(1, listsize, grid, grid)
+
+
 def decode_grid(
     tensor: np.ndarray,
     num_cls: int,
@@ -110,6 +143,53 @@ def decode_grid(
     y1 = cy - ltrb[:, 1]
     x2 = cx + ltrb[:, 2]
     y2 = cy + ltrb[:, 3]
+    boxes = np.stack([x1, y1, x2, y2], axis=1).astype(np.float32)
+
+    return boxes, scores[keep].astype(np.float32)
+
+
+def decode_grid_direct(
+    tensor: np.ndarray,
+    num_cls: int,
+    stride: int,
+    obj_thresh: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Decode one output grid, shaped (1, num_cls + 4, H, W), into
+    (boxes_xyxy, scores) in letterboxed pixel space.
+
+    Unlike decode_grid() above, this is for models that regress the
+    four l/t/r/b box offsets *directly* (no DFL distribution over
+    reg_max bins per side) — e.g. a YOLO export with `nms=False` but
+    no anchor-free DFL head. Confirmed against a working reference
+    decode (face_attrs_npu_rtsp.py's decode_scale()) for this exact
+    face model: single class-score channel (sigmoid), then 4 raw
+    offset channels, ordered left/top/right/bottom, each already in
+    grid-cell units — multiplying by `stride` converts straight to
+    letterboxed pixels, no softmax/bin-expectation step needed.
+    """
+    tensor = np.squeeze(tensor, axis=0)  # (listsize, H, W)
+    _, grid_h, grid_w = tensor.shape
+
+    cls_logits = tensor[:num_cls]  # (num_cls, H, W)
+    scores = sigmoid(cls_logits).max(axis=0)  # (H, W)
+
+    keep = scores > obj_thresh
+    if not np.any(keep):
+        return np.empty((0, 4), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+    l = tensor[num_cls][keep]
+    t = tensor[num_cls + 1][keep]
+    r = tensor[num_cls + 2][keep]
+    b = tensor[num_cls + 3][keep]
+
+    rows, cols = np.nonzero(keep)
+    cx = cols.astype(np.float32) + 0.5
+    cy = rows.astype(np.float32) + 0.5
+
+    x1 = (cx - l) * stride
+    y1 = (cy - t) * stride
+    x2 = (cx + r) * stride
+    y2 = (cy + b) * stride
     boxes = np.stack([x1, y1, x2, y2], axis=1).astype(np.float32)
 
     return boxes, scores[keep].astype(np.float32)

@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-_FFMPEG_OPTIONS = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0|buffer_size;65536"
+_FFMPEG_OPTIONS = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0|buffer_size;65536|threads;1"
 
 
 class RtspClient:
@@ -24,6 +24,10 @@ class RtspClient:
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = _FFMPEG_OPTIONS
         self._cap = cv2.VideoCapture(self._url, cv2.CAP_FFMPEG)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if hasattr(cv2, "CAP_PROP_THREAD_COUNT"):
+            # Belt-and-suspenders alongside threads;1 above and the
+            # process-wide cv2.setNumThreads(1) in main.py.
+            self._cap.set(cv2.CAP_PROP_THREAD_COUNT, 1)
         return self._cap.isOpened()
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:

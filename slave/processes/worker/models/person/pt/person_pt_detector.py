@@ -20,7 +20,8 @@ CLASS_NAME = "person"
 
 
 class PersonPtDetector:
-    def __init__(self, model_path: str, model_config: dict) -> None:
+    def __init__(self, model_path: str, model_config: dict, model_name: str) -> None:
+        self._model_name = model_name
         pt_cfg = model_config.get("pt", {})
         thresholds = model_config.get("thresholds", {})
         self._obj_thresh = float(thresholds.get("obj_thresh", 0.20))
@@ -50,6 +51,7 @@ class PersonPtDetector:
                     class_name=CLASS_NAME,
                     confidence=float(box.conf[0]),
                     bbox=(x1, y1, x2, y2),
+                    model_name=self._model_name,
                 )
             )
         return detections
