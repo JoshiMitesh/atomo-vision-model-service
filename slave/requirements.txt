@@ -1,0 +1,15 @@
+PyYAML>=6.0
+nats-py>=2.6
+opencv-python>=4.8
+numpy>=1.24
+minio>=7.2
+psutil>=5.9   # device telemetry/heartbeat (processes/device/); falls back to timestamp-only if absent
+
+# Person .pt runtime only. Not required for .nb/.so-only NPU deployments.
+ultralytics>=8.2
+torch>=2.1
+
+# Person .nb/.so NPU runtimes depend on the vendor-provided Amlogic
+# A311D SDK (e.g. KSNN/ASNN or the board's own package). Install that
+# separately per the board's BSP documentation — see
+# runtimes/npu/nb_runtime.py and runtimes/npu/so_runtime.py.
