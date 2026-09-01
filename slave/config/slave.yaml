@@ -1,0 +1,49 @@
+# Slave Node runtime configuration.
+# Model-specific settings live in config/models/*.yaml, NOT here.
+
+nats:
+  host: 127.0.0.1
+  port: 4222
+  job_subject: slave.jobs.start
+  stop_subject: slave.jobs.stop
+  detection_subject: master.detections
+  upload_subject: master.uploads
+  reconnect_wait_seconds: 2
+  # Optional auth — leave both null for an unauthenticated NATS server
+  # (matches current behavior). Set per-device before deploying.
+  user: slave01
+  password: "123"
+
+# Device identity + timing for the health/telemetry/command channel
+# (processes/device/) — independent of job control above. Set site_id
+# and slave_id uniquely per physical device before deploying.
+device:
+  site_id: site1
+  slave_id: slave01
+  data_stream_name: DEVICE_DATA
+  data_interval_seconds: 30
+  health_bucket: device_health
+  health_ttl_seconds: 30
+  heartbeat_interval_seconds: 5
+
+jobs:
+  path: config/jobs.yaml
+  poll_interval_seconds: 60
+
+minio:
+  endpoint: 192.168.1.17:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  bucket: person-detections
+  secure: false
+
+video:
+  segment_seconds: 30
+  temp_dir: storage/tmp/video
+  fps: 10
+
+logging:
+  dir: logging_output
+  max_bytes: 10485760   # 10 MB
+  backup_count: 5
+  level: INFO
