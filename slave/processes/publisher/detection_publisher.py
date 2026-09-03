@@ -11,13 +11,13 @@ log = get_logger(__name__)
 
 
 class DetectionPublisher:
-    def __init__(self, publisher: Publisher, detection_subject: str) -> None:
-        self._publisher = publisher
-        self._subject = detection_subject
+    def __init__(self, publisher: Publisher, detection_subject: str) -> None: # 
+        self._publisher = publisher # publisher is an instance of the Publisher class, which handles the actual NATS publishing
+        self._subject = detection_subject # subject is the NATS subject to which detections will be published
 
     def publish_detection(self, result: DetectionResult) -> None:
-        message = build_detection_message(result)
+        message = build_detection_message(result) # build_detection_message is a function that takes a DetectionResult and converts it into a message format suitable for publishing over NATS
         try:
-            self._publisher.publish(self._subject, message)
+            self._publisher.publish(self._subject, message) # publish is a method of the Publisher class that sends the message to the specified NATS subject
         except Exception:
-            log.exception("failed to publish detection for job_id=%s frame_id=%s", result.job_id, result.frame_id)
+            log.exception("failed to publish detection for job_id=%s frame_id=%s", result.job_id, result.frame_id) # log the exception if publishing fails

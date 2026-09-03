@@ -92,4 +92,5 @@ def build_face_controller(
         detector_factory=detector_factory,
         off_timeout_sec=float(trigger_cfg.get("off_timeout_sec", 12)),
         inference_frame_interval=int(trigger_cfg.get("inference_frame_interval", 1)),
+        enabled=bool(trigger_cfg.get("enabled", True)),
     )

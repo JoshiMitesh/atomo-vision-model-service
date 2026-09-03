@@ -47,11 +47,13 @@ class FaceController:
         detector_factory: DetectorFactory,
         off_timeout_sec: float,
         inference_frame_interval: int = 1,
+        enabled: bool = True,
     ) -> None:
         self._job_id = job_id
         self._detector_factory = detector_factory
         self._off_timeout_sec = float(off_timeout_sec)
         self._inference_frame_interval = max(1, int(inference_frame_interval))
+        self._enabled = bool(enabled)
         self._log = get_logger(__name__, job_id=job_id)
 
         self._detector = None
@@ -59,10 +61,16 @@ class FaceController:
         self._last_person_seen: Optional[float] = None
         self._frame_counter = 0
 
+        if not self._enabled:
+            self._log.info("face detection disabled (face.trigger.enabled=false) — person-only")
+
     def update(self, frame_image: np.ndarray, person_detections: List[Detection]) -> List[Detection]:
         """Call once per frame, after the Person detector has run.
         Returns Face detections for this frame (possibly empty).
         """
+        if not self._enabled:
+            return []  # disabled: never activates, never touches the factory/NPU at all
+
         now = monotonic()
 
         if person_detections:
