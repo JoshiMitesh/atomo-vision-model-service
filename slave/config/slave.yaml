@@ -3,8 +3,8 @@
 
 nats:
   host: 127.0.0.1
-  port: 9222
-  use_websocket: true
+  port: 4222
+  use_websocket: false
   job_subject: slave.jobs.start
   stop_subject: slave.jobs.stop
   detection_subject: master.detections
