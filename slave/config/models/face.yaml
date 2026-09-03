@@ -20,6 +20,10 @@ input:
   pad_value: 114
 
 trigger:
+  # Set to false to run Person detection only -- Face never activates,
+  # the Face model is never loaded, and update() is a zero-cost no-op
+  # every frame (no NPU/CPU spent on face at all). See face_controller.py.
+  enabled: true
   # How long (seconds) Face detection keeps running after the Person
   # worker on this job stops reporting any person in frame, before
   # auto-releasing the Face model (10-15s grace window).

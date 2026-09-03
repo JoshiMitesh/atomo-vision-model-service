@@ -67,6 +67,8 @@ def main() -> None:
     # thread pool (parallel_for_, used by resize/rectangle/putText/
     # VideoWriter/VideoCapture decode), which is separate from BLAS and
     # not covered by the OMP/OPENBLAS/MKL env vars.
+
+    # why thread count is 1 and what if use multiple threads?
     cv2.setNumThreads(1)
 
     config = load_slave_config()
@@ -80,27 +82,27 @@ def main() -> None:
     _bootstrap_jobs_yaml(jobs_yaml_path)
 
     # Shared, process-wide services.
-    publisher = Publisher(config.nats)
-    publisher.start()
-    detection_publisher = DetectionPublisher(publisher, config.nats.detection_subject)
-    upload_publisher = UploadPublisher(publisher, config.nats.upload_subject)
+    publisher = Publisher(config.nats) # creates a new publisher instance with the NATS configuration
+    publisher.start() # start the publisher in a separate thread, which runs an asyncio event loop for NATS communication
+    detection_publisher = DetectionPublisher(publisher, config.nats.detection_subject) # detection_publisher is an instance of the DetectionPublisher class, which is responsible for publishing detection results to the Master over NATS
+    upload_publisher = UploadPublisher(publisher, config.nats.upload_subject) # upload_publisher is an instance of the UploadPublisher class, which is responsible for publishing upload events to the Master over NATS
 
-    minio_client = MinioClientWrapper(config.minio)
-    frame_uploader = FrameUploader(minio_client, upload_publisher)
-    video_uploader = VideoUploader(minio_client, upload_publisher)
+    minio_client = MinioClientWrapper(config.minio) # creates a new MinioClientWrapper instance with the MinIO configuration, which is responsible for interacting with the MinIO object storage service
+    frame_uploader = FrameUploader(minio_client) # creates a new FrameUploader instance with the MinioClientWrapper, responsible for uploading detected frames to MinIO. No longer takes upload_publisher — the frame's object_key/url are embedded directly into the DetectionResult by the worker instead of being published as a separate upload-started message.
+    video_uploader = VideoUploader(minio_client, upload_publisher) # creates a new VideoUploader instance with the MinioClientWrapper and UploadPublisher instances, which is responsible for uploading completed 30-second video segments to MinIO and publishing upload events to the Master over NATS.
 
     services = WorkerServices(
-        models_root=os.path.join(REPO_ROOT, "processes", "worker", "models"),
-        config_root=config.resolve_path("config"),
-        detection_publisher=detection_publisher,
-        frame_uploader=frame_uploader,
-        video_uploader=video_uploader,
-        video_temp_dir=config.resolve_path(config.video.temp_dir),
-        video_segment_seconds=config.video.segment_seconds,
-        video_fps=config.video.fps,
+        models_root=os.path.join(REPO_ROOT, "processes", "worker", "models"), # models_root is the path to the directory where the worker models are stored, which is used by the WorkerServices to load and manage the models for inference.
+        config_root=config.resolve_path("config"), # config_root is the path to the directory where the configuration files are stored, which is used by the WorkerServices to load and manage the configuration for the workers.
+        detection_publisher=detection_publisher, # detection_publisher is the instance of the DetectionPublisher class, which is used by the WorkerServices to publish detection results to the Master over NATS.
+        frame_uploader=frame_uploader, # frame_uploader is the instance of the FrameUploader class, which is used by the WorkerServices to upload detected frames to MinIO and publish upload events to the Master over NATS.
+        video_uploader=video_uploader, # video_uploader is the instance of the VideoUploader class, which is used by the WorkerServices to upload completed 30-second video segments to MinIO and publish upload events to the Master over NATS.
+        video_temp_dir=config.resolve_path(config.video.temp_dir), # video_temp_dir is the path to the temporary directory where video segments are stored before being uploaded to MinIO, which is used by the WorkerServices to manage the temporary storage of video segments.
+        video_segment_seconds=config.video.segment_seconds, # video_segment_seconds is the duration of each video segment in seconds, which is used by the WorkerServices to determine how long each video segment should be before it is uploaded to MinIO.
+        video_fps=config.video.fps, # video_fps is the frames per second (FPS) of the video segments, which is used by the WorkerServices to determine the frame rate of the video segments before they are uploaded to MinIO.
     )
 
-    registry = build_default_registry()
+    registry = build_default_registry() 
     worker_manager = WorkerManager()
     model_manager = ModelManager(registry, config.resolve_path("config"), services)
     job_manager = JobManager(worker_manager, model_manager)

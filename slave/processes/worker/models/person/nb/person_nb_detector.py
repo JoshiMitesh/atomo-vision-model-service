@@ -18,6 +18,7 @@ pipelines; only the final Detection contract is shared).
 
 from __future__ import annotations
 
+import time
 from typing import List, Tuple
 
 import cv2
@@ -36,6 +37,8 @@ LISTSIZE = NUM_CLS + 4 * REG_MAX  # 65
 class PersonNbDetector:
     def __init__(self, model_path: str, library_path: str, model_config: dict, model_name: str) -> None:
         self._model_name = model_name
+        self.inference_ms = 0.0
+
         nb_cfg = model_config.get("nb", {})
         thresholds = model_config.get("thresholds", {})
 
@@ -59,6 +62,7 @@ class PersonNbDetector:
             input_cfg.get("large_size", 1024) if keyword in model_name else input_cfg.get("default_size", 640)
         )
         self._pad_value = int(input_cfg.get("pad_value", 114))
+        self._lb_canvas = np.full((self._input_size, self._input_size, 3), self._pad_value, dtype=np.uint8)
 
         self._runtime = NbRuntime(
             model_path=model_path,
@@ -69,10 +73,13 @@ class PersonNbDetector:
         )
 
     def detect(self, frame: np.ndarray) -> List[Detection]:
-        letterboxed, info = ru.letterbox(frame, self._input_size, self._pad_value)
+        letterboxed, info = ru.letterbox(frame, self._input_size, self._pad_value, canvas=self._lb_canvas)
         input_tensor = ru.to_input_tensor(letterboxed)
 
+        start = time.monotonic()
         raw_outputs = self._runtime.infer(input_tensor)
+        self.inference_ms = (time.monotonic() - start) * 1000.0
+
         # Largest tensor first (finest grid / smallest stride — matches
         # the reference's candidate-gathering order).
         outputs = sorted(raw_outputs, key=lambda t: t.size, reverse=True)

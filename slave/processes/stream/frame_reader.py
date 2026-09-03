@@ -31,12 +31,20 @@ class FrameReader:
         self._log = get_logger(__name__, job_id=job_id)
 
         self._status_lock = threading.Lock()
+        self._capture_fps = 0.0
+        self._fps_frame_count = 0
+        self._fps_window_start = time.monotonic()
         self._status = "offline"
 
     def get_status(self) -> str:
         """Camera connection status: 'online', 'reconnecting', or 'offline'."""
         with self._status_lock:
             return self._status
+        
+    def get_capture_fps(self) -> float:
+        """Measured RTSP capture rate over the last ~2s window."""
+        with self._status_lock:
+            return self._capture_fps
 
     def _set_status(self, status: str) -> None:
         with self._status_lock:
@@ -77,6 +85,7 @@ class FrameReader:
                 timestamp=epoch_seconds(),
             )
             self._push_latest(frame)
+            self._tick_fps()
 
         self._set_status("offline")
         self._log.info("frame reader stopped")
@@ -91,6 +100,16 @@ class FrameReader:
             self._queue.put_nowait(frame)
         except queue.Full:
             pass
+
+    def _tick_fps(self) -> None:
+        with self._status_lock:
+            self._fps_frame_count += 1
+            elapsed = time.monotonic() - self._fps_window_start
+            if elapsed >= 2.0:
+                self._capture_fps = self._fps_frame_count / elapsed
+                self._fps_frame_count = 0
+                self._fps_window_start = time.monotonic()
+
 
     def _reconnect_with_backoff(self) -> None:
         for _ in range(3):

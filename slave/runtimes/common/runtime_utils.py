@@ -23,17 +23,16 @@ class LetterboxInfo:
     original_size: Tuple[int, int]  # (width, height)
 
 
-def letterbox(image: np.ndarray, size: int, pad_value: int = 114) -> Tuple[np.ndarray, LetterboxInfo]:
-    """Resize preserving aspect ratio onto a `size` x `size` canvas,
-    padding with `pad_value`. Returns the padded image and the info
-    needed to map boxes back to original coordinates.
-    """
+def letterbox(image: np.ndarray, size: int, pad_value: int = 114, canvas: np.ndarray | None = None) -> Tuple[np.ndarray, LetterboxInfo]:
     height, width = image.shape[:2]
     scale = min(size / width, size / height)
     new_w, new_h = round(width * scale), round(height * scale)
 
     resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    canvas = np.full((size, size, 3), pad_value, dtype=np.uint8)
+    if canvas is None:
+        canvas = np.full((size, size, 3), pad_value, dtype=np.uint8)
+    else:
+        canvas[:] = pad_value          # wipe and reuse instead of allocating new
     pad_x = (size - new_w) / 2
     pad_y = (size - new_h) / 2
     x0, y0 = round(pad_x), round(pad_y)
