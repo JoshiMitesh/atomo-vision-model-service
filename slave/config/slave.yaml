@@ -3,7 +3,8 @@
 
 nats:
   host: 127.0.0.1
-  port: 4222
+  port: 9222
+  use_websocket: true
   job_subject: slave.jobs.start
   stop_subject: slave.jobs.stop
   detection_subject: master.detections
@@ -11,8 +12,6 @@ nats:
   reconnect_wait_seconds: 2
   # Optional auth — leave both null for an unauthenticated NATS server
   # (matches current behavior). Set per-device before deploying.
-  user: slave01
-  password: "123"
 
 # Device identity + timing for the health/telemetry/command channel
 # (processes/device/) — independent of job control above. Set site_id
@@ -31,11 +30,12 @@ jobs:
   poll_interval_seconds: 60
 
 minio:
-  endpoint: 192.168.1.17:9000
+  endpoint: 192.168.1.9:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: person-detections
   secure: false
+  enabled: false   # skip MinIO frame/video uploads for now — set back to true when needed
 
 video:
   segment_seconds: 30

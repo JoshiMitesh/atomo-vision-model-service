@@ -82,21 +82,35 @@ class PersonPtWorker:
         face_detections = self._face_controller.update(frame.image, person_detections)
         detections = person_detections + face_detections
 
+        # Upload happens before publishing so the frame's object_key/url
+        # can be embedded directly into the DetectionResult — one merged
+        # NATS message per frame instead of a separate detection message
+        # plus a separate upload-started message.
+        object_key = url = None
+        annotated = None
+        if detections:
+            annotated = draw_detections(frame.image, detections)
+            upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
+            if upload_info is not None:
+                object_key, url = upload_info
+
         result = DetectionResult(
             job_id=self._job.job_id,
             frame_id=frame.frame_id,
             camera_name=self._job.stream_name,
             camera_url=self._camera_url,
             camera_status=self._frame_reader.get_status(),
+            camera_fps=self._frame_reader.get_capture_fps(),
             detections=detections,
+            object_key=object_key,
+            url=url,
         )
         self._detection_publisher.publish_detection(result)
 
-        if result.has_detections:
-            annotated = draw_detections(frame.image, detections)
-            self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
-
-        self._video_manager.feed_frame(frame.image)
+        # Video only records while a person is actually in frame, with
+        # the same boxes already drawn above for the upload.
+        if person_detections:
+            self._video_manager.feed_frame(annotated)
 
     def _cleanup(self) -> None:
         try:

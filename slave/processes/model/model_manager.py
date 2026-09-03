@@ -24,7 +24,7 @@ from slave.processes.worker.worker_factory import WorkerServices
 
 class ModelManager:
     def __init__(self, registry: ModelRegistry, config_root: str, services: WorkerServices) -> None:
-        self._registry = registry
+        self._registry = registry # regis
         self._config_root = config_root
         self._services = services
 
