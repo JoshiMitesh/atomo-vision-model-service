@@ -1,5 +1,6 @@
 PyYAML>=6.0
 nats-py>=2.6
+aiohttp>=3.9   # required only when nats.use_websocket=true (config/slave.yaml)
 opencv-python>=4.8
 numpy>=1.24
 minio>=7.2
