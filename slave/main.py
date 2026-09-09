@@ -144,7 +144,7 @@ def main() -> None:
 
     # Device health/telemetry/command channel — independent of the job
     # pipeline above (see processes/device/device_agent.py).
-    device_agent = DeviceAgent(config.nats, config.device)
+    device_agent = DeviceAgent(config.nats, config.device, jobs_yaml_path)
     device_agent.start()
 
     shutdown_event = threading.Event()
