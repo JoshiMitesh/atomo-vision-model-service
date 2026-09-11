@@ -73,6 +73,16 @@ def _build_detector(model_extension: str, models_root: str, face_cfg: dict):
     raise ValueError(f"face detection: unsupported model_extension '{model_extension}'")
 
 
+def build_face_detector(model_extension: str, models_root: str, config_root: str):
+    """Build a ready-to-use Face detector directly (no FaceController
+    state machine) — for standalone Face jobs (face_*_worker.py), which
+    run Face unconditionally on their own job/stream rather than being
+    triggered by a Person worker on the same frame.
+    """
+    face_cfg = _load_face_config(config_root)
+    return _build_detector(model_extension, models_root, face_cfg)
+
+
 def build_face_controller(
     job_id: str,
     model_extension: str,
