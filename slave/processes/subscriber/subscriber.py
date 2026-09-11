@@ -37,21 +37,61 @@ class NatsSubscriber:
         self._nc: nats.aio.client.Client | None = None
 
     async def start(self) -> None:
-        self._nc = await nats.connect(
-            self._config.url,
-            user=self._config.user,
-            password=self._config.password,
-            reconnect_time_wait=self._config.reconnect_wait_seconds,
-            max_reconnect_attempts=-1,
-        )
-        await self._nc.subscribe(self._config.job_subject, cb=self._on_message)
-        await self._nc.subscribe(self._config.stop_subject, cb=self._on_message)
-        log.info(
-            "NATS subscriber connected to %s (job=%s, stop=%s)",
-            self._config.url,
-            self._config.job_subject,
-            self._config.stop_subject,
-        )
+        """Keep trying to reach NATS forever, without crashing the
+        subscriber thread. The master/NATS may not be reachable when the
+        Slave starts (e.g. network not up yet) — jobs already in
+        jobs.yaml still run via job_watcher regardless. Once connected,
+        whenever the master/NATS comes up later, this picks it up
+        automatically and starts receiving job/stop messages — no
+        restart needed."""
+        async def disconnected_cb():
+            log.warning("subscriber disconnected from NATS (master unreachable) — will keep retrying")
+
+        async def reconnected_cb():
+            log.info("subscriber reconnected to NATS: %s", self._nc.connected_url if self._nc else self._config.url)
+
+        async def error_cb(error):
+            # Without this, nats-py logs connect/subscribe/protocol
+            # errors (e.g. a permissions violation) as a raw
+            # exc_info=... traceback via its own internal logger
+            # instead of our own formatted, rotated log output.
+            log.warning("subscriber NATS error: %s", error)
+
+        async def closed_cb():
+            log.info("subscriber NATS connection closed")
+
+        attempt = 0
+        while True:
+            try:
+                self._nc = await nats.connect(
+                    self._config.url,
+                    user=self._config.user,
+                    password=self._config.password,
+                    reconnect_time_wait=self._config.reconnect_wait_seconds,
+                    max_reconnect_attempts=-1,
+                    disconnected_cb=disconnected_cb,
+                    reconnected_cb=reconnected_cb,
+                    error_cb=error_cb,
+                    closed_cb=closed_cb,
+                )
+                await self._nc.subscribe(self._config.job_subject, cb=self._on_message)
+                await self._nc.subscribe(self._config.stop_subject, cb=self._on_message)
+                log.info(
+                    "NATS subscriber connected to %s (job=%s, stop=%s)",
+                    self._config.url,
+                    self._config.job_subject,
+                    self._config.stop_subject,
+                )
+                return
+            except Exception as exc:
+                attempt += 1
+                wait_s = min(self._config.reconnect_wait_seconds * attempt, 30)
+                log.warning(
+                    "NATS subscriber could not reach %s (attempt %d): %s — retrying in %.0fs",
+                    self._config.url, attempt, exc, wait_s,
+                )
+                self._nc = None
+                await asyncio.sleep(wait_s)
 
     async def stop(self) -> None:
         if self._nc is not None:

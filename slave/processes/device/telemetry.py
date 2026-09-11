@@ -1,16 +1,18 @@
-"""Device-level hardware telemetry (CPU/disk/uptime).
+"""Device-level hardware telemetry (CPU/disk/uptime) + live job stats.
 
 Shared by telemetry_publisher.py, heartbeat_publisher.py, and
 command_handler.py's get_status response — one sampling function, not
 duplicated three times.
+
+device_name/ip (config.DeviceConfig) are passed in by the caller and
+included in the payload — the Master requires them in the health
+message body even though the subject is already per-device.
 """
 
 from __future__ import annotations
 
-import getpass
-import socket
 import time
-from typing import Optional
+from typing import List, Optional
 
 try:
     import psutil
@@ -18,6 +20,7 @@ except ImportError:  # pragma: no cover - optional dependency
     psutil = None  # type: ignore[assignment]
 
 from slave.logging.logger import get_logger
+from slave.storage.yaml import job_store
 
 log = get_logger(__name__)
 
@@ -30,36 +33,6 @@ else:
     # Prime the internal baseline so the first real reading reflects
     # actual CPU load instead of 0.0.
     psutil.cpu_percent(interval=None)
-
-
-def _detect_local_ip() -> Optional[str]:
-    """Best-effort LAN IP of this machine — the address other hosts
-    (Master, NATS) would actually use to reach it, not '127.0.0.1'.
-
-    Uses the UDP-connect trick (no packet is actually sent) to ask the
-    OS which local interface it would route through.
-    """
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except OSError:
-        return None
-
-
-def _detect_slave_name() -> Optional[str]:
-    """OS username this process runs as — a human-readable label for
-    the device, distinct from the configured slave_id.
-    """
-    try:
-        return getpass.getuser()
-    except Exception:
-        return None
-
-
-# Cached once at import time — these don't change while the process runs.
-_LOCAL_IP = _detect_local_ip()
-_SLAVE_NAME = _detect_slave_name()
 
 
 def _detect_temp_c() -> Optional[float]:
@@ -84,13 +57,34 @@ def _detect_temp_c() -> Optional[float]:
     return first_sensor[0].current
 
 
-def sample_telemetry(slave_id: Optional[str] = None) -> dict:
+def _job_stats(jobs_yaml_path: Optional[str]) -> dict:
+    """running_cameras / loaded_models, read live from config/jobs.yaml
+    (CLAUDE.md §3: jobs.yaml is runtime state) — not from any
+    in-memory worker registry, so this reflects the desired job list
+    the instant it's published, same as job_watcher.py will pick up.
+
+    Never raises — a bad/missing jobs.yaml must not break telemetry.
+    """
+    if not jobs_yaml_path:
+        return {"running_cameras": 0, "loaded_models": []}
+    try:
+        jobs = job_store.load_jobs(jobs_yaml_path)
+    except Exception:
+        log.exception("failed to read jobs.yaml for telemetry job stats")
+        return {"running_cameras": 0, "loaded_models": []}
+
+    loaded_models: List[str] = sorted({job.model_name for job in jobs})
+    return {"running_cameras": len(jobs), "loaded_models": loaded_models}
+
+
+def sample_telemetry(jobs_yaml_path: Optional[str], device_name: str, ip: str) -> dict:
     payload: dict = {
-        "slave_id": slave_id,
-        "slave_name": _SLAVE_NAME,
-        "ip": _LOCAL_IP,
+        "device_name": device_name,
+        "ip": ip or None,
         "ts": int(time.time() * 1000),
     }
+    payload.update(_job_stats(jobs_yaml_path))
+
     if psutil is None:
         return payload
     payload["cpu"] = psutil.cpu_percent(interval=None)
