@@ -45,8 +45,16 @@ def _area_for(logger_name: str) -> str:
         slave.processes.worker.worker_manager  -> worker
         slave.storage.yaml.job_store           -> storage
         slave.main                             -> main
+
+    Third-party loggers we've attached to this same handler (currently
+    just nats-py — see LogManager.__init__) don't live under the
+    "slave." tree at all; route anything outside it to one shared
+    "nats.log" rather than inventing a per-submodule file (e.g.
+    "nats.aio.client" would otherwise become an "aio" area).
     """
     parts = logger_name.split(".")
+    if parts[0] != "slave":
+        return "nats"
     if len(parts) >= 3 and parts[1] == "processes":
         return parts[2]
     if len(parts) >= 2:
@@ -137,6 +145,25 @@ class LogManager:
             console_handler.setFormatter(stdlib_logging.Formatter(_LOG_FORMAT))
             console_handler.addFilter(job_filter)
             root.addHandler(console_handler)
+
+            # nats-py logs its own connect/reconnect/disconnect failures
+            # directly via logging.getLogger("nats.aio.client") — a raw
+            # exc_info=... traceback dump ("nats: encountered error"),
+            # independent of the disconnected_cb/error_cb hooks our own
+            # code already sets (publisher.py, device_agent.py,
+            # subscriber.py all log their own clean "... disconnected
+            # from NATS" line separately). Left unconfigured, that
+            # logger has no handler, so Python's logging module falls
+            # back to dumping it straight to stderr with a full
+            # traceback on every failed reconnect attempt. Attach it to
+            # the same handlers/rotation as everything else instead —
+            # WARNING+ only, since nats-py's own INFO/DEBUG chatter
+            # isn't ours to keep.
+            nats_logger = stdlib_logging.getLogger("nats")
+            nats_logger.setLevel(stdlib_logging.WARNING)
+            nats_logger.propagate = False
+            nats_logger.addHandler(routing_handler)
+            nats_logger.addHandler(console_handler)
 
     @classmethod
     def init(
