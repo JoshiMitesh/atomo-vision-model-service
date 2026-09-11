@@ -22,6 +22,12 @@ CLASS_NAME = "person"
 class PersonPtDetector:
     def __init__(self, model_path: str, model_config: dict, model_name: str) -> None:
         self._model_name = model_name
+        # What gets published to the Master (NATS) as Detection.model_name —
+        # the ENUM/display name (e.g. "Person"), not the job's model
+        # filename. See config/models/person.yaml's `display_name` comment:
+        # the Master's Redis alert-rule lookup is an exact string match and
+        # never matches a raw filename.
+        self._display_name = model_config.get("display_name") or model_name
         pt_cfg = model_config.get("pt", {})
         thresholds = model_config.get("thresholds", {})
         self._obj_thresh = float(thresholds.get("obj_thresh", 0.20))
@@ -51,7 +57,7 @@ class PersonPtDetector:
                     class_name=CLASS_NAME,
                     confidence=float(box.conf[0]),
                     bbox=(x1, y1, x2, y2),
-                    model_name=self._model_name,
+                    model_name=self._display_name,
                 )
             )
         return detections
