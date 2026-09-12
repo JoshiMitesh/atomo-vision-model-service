@@ -47,7 +47,12 @@ class NpuRoundRobinScheduler:
     instead of each owning their own detector + polling thread.
     """
 
-    def __init__(self, detector: PersonNbDetector, target_fps: float = 12.0) -> None:
+    def __init__(
+        self,
+        detector: PersonNbDetector,
+        target_fps: float = 4.0,
+        process_interval: float = 0.25,
+    ) -> None:
         self._detector = detector
         self._sources: "OrderedDict[str, _Registration]" = OrderedDict()
         self._lock = threading.Lock()
@@ -57,12 +62,14 @@ class NpuRoundRobinScheduler:
         self.total_inference_fps = 0.0
         self._log = get_logger(__name__)
 
-        # Caps each job at target_fps rather than running the full
-        # letterbox->tensor->NPU->decode pipeline on every single frame
-        # the camera delivers (25-30fps native) — the CPU-heavy steps
-        # (letterbox, to_input_tensor) are unconditional per detect()
-        # call, so this directly cuts their total cost proportionally.
-        self._min_detect_interval = 1.0 / target_fps if target_fps > 0 else 0.0
+        # Match the reference low-CPU behavior: one shared NPU loop,
+        # strict round-robin scheduling, and a deliberate per-camera
+        # cadence so multiple streams do not burn the board on stale RTSP
+        # frames. This is the safe setting used by the reference 12-camera
+        # script on the same hardware class.
+        fps_interval = 1.0 / target_fps if target_fps > 0 else 0.0
+        requested_interval = float(process_interval) if process_interval > 0 else 0.0
+        self._min_detect_interval = max(fps_interval, requested_interval)
         self._last_detected: Dict[str, float] = {}
 
     def register(self, job_id: str, frame_reader: FrameReader, on_detections: OnDetections) -> None:
@@ -176,13 +183,19 @@ def get_shared_scheduler(
     with _registry_lock:
         scheduler = _registry.get(model_path)
         if scheduler is None:
-            target_fps = float(model_config.get("nb", {}).get("target_fps", 12.0))
+            nb_cfg = model_config.get("nb", {})
+            target_fps = float(nb_cfg.get("target_fps", 2.0))
+            process_interval = float(nb_cfg.get("process_interval", 0.0))
             log.info(
-                "creating shared NPU round-robin scheduler for model_path=%s (target_fps=%s)",
-                model_path, target_fps,
+                "creating shared NPU round-robin scheduler for model_path=%s (target_fps=%s, process_interval=%s)",
+                model_path, target_fps, process_interval,
             )
             detector = PersonNbDetector(model_path, library_path, model_config, model_name)
-            scheduler = NpuRoundRobinScheduler(detector, target_fps=target_fps)
+            scheduler = NpuRoundRobinScheduler(
+                detector,
+                target_fps=target_fps,
+                process_interval=process_interval,
+            )
             _registry[model_path] = scheduler
         return scheduler
 

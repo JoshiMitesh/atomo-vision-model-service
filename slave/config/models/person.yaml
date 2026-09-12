@@ -60,10 +60,12 @@ nb:
   # Filename only, resolved against processes/worker/models/person/
   # (same directory as the .nb model file itself).
   library_file: person.so
-  process_interval: 0.100   # seconds to rest between inferences (lower CPU, same as reference script)
-  target_fps: 12            # caps each job's detection rate independently (10-15 range) — see
-                             # npu_round_robin_scheduler.py; the camera still delivers its native
-                             # FPS, this just skips running letterbox/NPU/decode on every frame
+  low_cpu_mode: true        # matches the reference script: inference-only hot path, no MinIO upload or video recording per frame.
+  publish_every_n_frames: 8 # sample every 8th processed frame to keep CPU and NATS load under control.
+  process_interval: 0.0     # reference-style shared NPU scheduler: no extra pause beyond the round-robin
+                             # cadence itself; the scheduler is intentionally conservative and skips stale frames.
+  target_fps: 2             # board-safe baseline matching the known-good reference behavior for multiple
+                             # cameras on the same NPU; this keeps CPU low while preserving usable detections.
 
   # NB-path-only detection tuning (person_nb_detector.py). Overrides
   # the shared thresholds: block above for this path only — .pt/.so

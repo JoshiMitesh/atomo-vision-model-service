@@ -7,18 +7,18 @@
 # approval_status are normally auto-generated; entered manually here
 # for now). Set uniquely per physical device before deploying.
 device_id: 32bf38de-4145-4cab-839b-65d5156c22cc
-device_name: savan-patel-victus
-password: '190325'
+device_name: electron
+password: 'electron'
 device_role: slave
-ip: 192.168.1.17
-dns_name: atomo-master.local
-mac_id: '24:fb:e3:c2:a0:1a'
+ip: 192.168.1.24
+dns_name: atomo-1.local
+mac_id: 'C4:3C:B0:AD:D5:85'
 serial_no: SN-0001
 status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.21
+  host: 192.168.1.38
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
