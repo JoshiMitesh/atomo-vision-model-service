@@ -18,9 +18,17 @@ status: Active
 approval_status: approved
 
 nats:
+<<<<<<< HEAD
   host: 192.168.1.17
+=======
+  host: 127.0.0.1
+>>>>>>> 4477c56165cae2cd5e84acdfeb6812fe3bf3b6db
   port: 4222
   use_websocket: false
+  job_subject: slave.jobs.start
+  stop_subject: slave.jobs.stop
+  detection_subject: master.detections
+  upload_subject: master.uploads
   reconnect_wait_seconds: 2
   user: electron
   password: '190325'
