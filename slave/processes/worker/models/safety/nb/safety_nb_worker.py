@@ -31,7 +31,6 @@ from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
-from slave.processes.stream.stream_connector import build_stream_url
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.safety.nb.safety_nb_detector import SafetyNbDetector
@@ -66,7 +65,7 @@ class SafetyNbWorker:
         library_path = os.path.join(models_dir, library_file) if library_file else None
         self._detector = SafetyNbDetector(model_path, library_path, model_config, job.model_name)
 
-        url = build_stream_url(identity.stream_host, job.camera_id)
+        url = job.camera_stream
         self._frame_reader = FrameReader(job.job_id, url)
 
         self._stop_event = threading.Event()
