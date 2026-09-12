@@ -14,7 +14,11 @@ from typing import Callable, Dict, Tuple
 
 WorkerBuilder = Callable[..., object]
 
+<<<<<<< HEAD
+SUPPORTED_MODEL_TYPES = ("person", "face", "safety")
+=======
 SUPPORTED_MODEL_TYPES = ("person", "face")
+>>>>>>> 4477c56165cae2cd5e84acdfeb6812fe3bf3b6db
 SUPPORTED_EXTENSIONS = (".pt", ".nb", ".so")
 
 
@@ -54,6 +58,12 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     from slave.processes.worker.models.face.pt.face_pt_worker import FacePtWorker
     from slave.processes.worker.models.face.nb.face_nb_worker import FaceNbWorker
     from slave.processes.worker.models.face.so.face_so_worker import FaceSoWorker
+<<<<<<< HEAD
+    from slave.processes.worker.models.safety.pt.safety_pt_worker import SafetyPtWorker
+    from slave.processes.worker.models.safety.nb.safety_nb_worker import SafetyNbWorker
+    from slave.processes.worker.models.safety.so.safety_so_worker import SafetySoWorker
+=======
+>>>>>>> 4477c56165cae2cd5e84acdfeb6812fe3bf3b6db
 
     registry = ModelRegistry() # creates a new ModelRegistry instance
     registry.register("person", ".pt", PersonPtWorker) # model_type is "person", model_extension is ".pt", and the corresponding worker builder is PersonPtWorker. This registers the PersonPtWorker class as the worker builder for the combination of model_type "person" and model_extension ".pt".
@@ -62,4 +72,10 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     registry.register("face", ".pt", FacePtWorker)   # standalone Face job (no Person job required) — same trigger-free Face detector used by face_controller.py, just running as its own job instead of person-chained.
     registry.register("face", ".nb", FaceNbWorker)
     registry.register("face", ".so", FaceSoWorker)
+<<<<<<< HEAD
+    registry.register("safety", ".pt", SafetyPtWorker)   # standalone Safety job — 9-class PPE-compliance detector, also face-controller-attached (Face auto-triggers off Safety's own "person" class, see worker_factory.py).
+    registry.register("safety", ".nb", SafetyNbWorker)
+    registry.register("safety", ".so", SafetySoWorker)
+=======
+>>>>>>> 4477c56165cae2cd5e84acdfeb6812fe3bf3b6db
     return registry # returns the fully constructed ModelRegistry instance with the registered worker builders for the supported (model_type, model_extension) combinations.
