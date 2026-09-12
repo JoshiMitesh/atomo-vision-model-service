@@ -49,13 +49,20 @@ class PersonNbWorker:
         self._identity = identity
         self._face_controller = face_controller
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._low_cpu_mode = bool(model_config.get("nb", {}).get("low_cpu_mode", True))
+        self._publish_every_n_frames = max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 4)))
+        self._frame_counter = 0
 
         library_file = model_config.get("nb", {}).get("library_file", "")
         self._model_path = os.path.join(models_dir, job.model_name)
         self._library_path = os.path.join(models_dir, library_file) if library_file else None
 
         url = build_stream_url(identity.stream_host, job.camera_id)
-        self._frame_reader = FrameReader(job.job_id, url)
+        self._frame_reader = FrameReader(
+            job.job_id,
+            url,
+            decode_every_n_frames=max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 8))),
+        )
 
         self._scheduler = scheduler_registry.get_shared_scheduler(
             self._model_path, self._library_path, model_config, job.model_name
@@ -83,31 +90,32 @@ class PersonNbWorker:
             self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame: Frame, person_detections: list) -> None:
+        self._frame_counter += 1
+        if self._frame_counter % self._publish_every_n_frames != 0:
+            return
+
         face_detections = self._face_controller.update(frame.image, person_detections)
         detections = person_detections + face_detections
 
-        # Upload happens before publishing so the frame's object_key/url
-        # can be embedded directly into the DetectionResult — one merged
-        # NATS message per frame instead of a separate detection message
-        # plus a separate upload-started message.
+        # Reference-style low-CPU mode: preserve the shared-NPU round-robin
+        # architecture but skip the expensive image upload/annotation/video
+        # work in the hot path. This matches the working board-safe script,
+        # which keeps inference cheap and avoids burning CPU on frame I/O.
         object_key = url = None
-        annotated = None
-        if detections:
-            annotated = draw_detections(frame.image, detections)
-            upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
-            if upload_info is not None:
-                object_key, url = upload_info
-
-        # width/height mirror object_key/url — only meaningful (and
-        # only sent) once there's actually an uploaded image they
-        # describe; null together with object_key/url when MinIO is
-        # disabled or nothing was detected this frame.
         width = height = None
-        if object_key is not None:
-            height, width = (int(v) for v in frame.image.shape[:2])
+        annotated = None
+        if not self._low_cpu_mode:
+            if detections:
+                annotated = draw_detections(frame.image, detections)
+                upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
+                if upload_info is not None:
+                    object_key, url = upload_info
+            if object_key is not None:
+                height, width = (int(v) for v in frame.image.shape[:2])
 
         # tracking_id is the frame's saved MinIO image id, not a real
-        # per-object tracker — null whenever nothing was uploaded.
+        # per-object tracker. In low-CPU mode we intentionally leave this
+        # null to avoid the upload overhead of the reference script.
         telemetry = group_detections(detections, self._job, tracking_id=object_key)
 
         result = DetectionResult(
@@ -127,9 +135,9 @@ class PersonNbWorker:
         )
         self._detection_publisher.publish_detection(result)
 
-        # Video only records while a person is actually in frame, with
-        # the same boxes already drawn above for the upload.
-        if person_detections:
+        # Video recording is intentionally disabled in low-CPU mode because
+        # the reference script does not spend its hot loop doing this work.
+        if not self._low_cpu_mode and person_detections:
             self._video_manager.feed_frame(annotated)
 
     def _cleanup(self) -> None:

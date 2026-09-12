@@ -1,1 +1,9 @@
-jobs: []
+jobs:
+- job_id: job_001
+  camera_id: cam_tapo_105
+  zone_id: main-entrance
+  model_assignments:
+  - model_type: person
+    model_name: person.nb
+    camera_model_assign_id: 032730bb-8d2a-4c93-9c6e-c782e25d27c0
+

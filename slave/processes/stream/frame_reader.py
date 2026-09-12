@@ -21,9 +21,9 @@ RECONNECT_BACKOFF_SECONDS = 2.0
 
 
 class FrameReader:
-    def __init__(self, job_id: str, url: str) -> None:
+    def __init__(self, job_id: str, url: str, decode_every_n_frames: int = 8) -> None:
         self._job_id = job_id
-        self._client = RtspClient(url)
+        self._client = RtspClient(url, decode_every_n_frames=decode_every_n_frames)
         self._queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
         self._frame_ids = FrameIdGenerator()
         self._stop_event = threading.Event()
