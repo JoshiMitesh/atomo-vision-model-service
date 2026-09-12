@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 
 from slave.logging.logger import get_logger
+from slave.models.detection import group_detections
 from slave.models.frame import Frame
 from slave.models.job import JobConfig
 from slave.processes.detection.detection_result import DetectionResult
@@ -25,6 +26,8 @@ from slave.processes.stream.stream_connector import build_stream_url
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.person.nb import npu_round_robin_scheduler as scheduler_registry
+from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.utils.time_utils import utc_now_iso
 
 
 class PersonNbWorker:
@@ -36,12 +39,14 @@ class PersonNbWorker:
         detection_publisher: DetectionPublisher,
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
+        identity: WorkerIdentity,
         face_controller: FaceController,
     ) -> None:
         self._job = job
         self._detection_publisher = detection_publisher
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
+        self._identity = identity
         self._face_controller = face_controller
         self._log = get_logger(__name__, job_id=job.job_id)
 
@@ -49,8 +54,7 @@ class PersonNbWorker:
         self._model_path = os.path.join(models_dir, job.model_name)
         self._library_path = os.path.join(models_dir, library_file) if library_file else None
 
-        url = build_stream_url(job.master_ip, job.stream_port, job.stream_name)
-        self._camera_url = url
+        url = build_stream_url(identity.stream_host, job.camera_id)
         self._frame_reader = FrameReader(job.job_id, url)
 
         self._scheduler = scheduler_registry.get_shared_scheduler(
@@ -94,16 +98,32 @@ class PersonNbWorker:
             if upload_info is not None:
                 object_key, url = upload_info
 
+        # width/height mirror object_key/url — only meaningful (and
+        # only sent) once there's actually an uploaded image they
+        # describe; null together with object_key/url when MinIO is
+        # disabled or nothing was detected this frame.
+        width = height = None
+        if object_key is not None:
+            height, width = (int(v) for v in frame.image.shape[:2])
+
+        # tracking_id is the frame's saved MinIO image id, not a real
+        # per-object tracker — null whenever nothing was uploaded.
+        telemetry = group_detections(detections, self._job, tracking_id=object_key)
+
         result = DetectionResult(
             job_id=self._job.job_id,
             frame_id=frame.frame_id,
-            camera_name=self._job.stream_name,
-            camera_url=self._camera_url,
+            occurred_at=utc_now_iso(),
+            branch_id=self._identity.branch_id,
+            device_id=self._identity.device_id,
+            zone_id=self._job.zone_id,
+            camera_id=self._job.camera_id,
             camera_status=self._frame_reader.get_status(),
-            camera_fps=self._frame_reader.get_capture_fps(),
-            detections=detections,
+            telemetry=telemetry,
             object_key=object_key,
             url=url,
+            width=width,
+            height=height,
         )
         self._detection_publisher.publish_detection(result)
 

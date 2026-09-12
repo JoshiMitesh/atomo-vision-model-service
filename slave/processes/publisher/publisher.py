@@ -40,6 +40,12 @@ class Publisher:
         no-ops (drops) until this succeeds. Once connected, whenever the
         master/NATS comes up later, this picks it up automatically and
         starts publishing — no restart needed."""
+        async def error_cb(error):
+            # Without this, async server-sent errors (e.g. a permissions
+            # violation on publish) are invisible — nats.py has nowhere
+            # else to report them since publish() is fire-and-forget.
+            log.warning("publisher NATS error: %s", error)
+
         attempt = 0
         while True:
             try:
@@ -49,6 +55,7 @@ class Publisher:
                     password=self._config.password, # password for authentication takes from slave.yaml
                     reconnect_time_wait=self._config.reconnect_wait_seconds, # time to wait before attempting to reconnect takes from slave.yaml
                     max_reconnect_attempts=-1, # unlimited reconnect attempts (after this first successful connect)
+                    error_cb=error_cb,
                 )
                 log.info("publisher connected to %s", self._config.url) # logs a message indicating that the publisher has successfully connected to the NATS server
                 self._ready.set() # signals that the publisher is ready to publish messages

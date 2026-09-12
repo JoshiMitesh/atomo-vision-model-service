@@ -24,6 +24,12 @@ LISTSIZE = NUM_CLS + 4 * REG_MAX  # 65
 class PersonSoDetector:
     def __init__(self, library_path: str, model_config: dict, model_name: str) -> None:
         self._model_name = model_name
+        # Published Detection.model_name — the ENUM/display name (e.g.
+        # "Person"), not the job's model filename. See config/models/
+        # person.yaml's `display_name` comment: the Master's Redis
+        # alert-rule lookup is an exact string match and never matches a
+        # raw filename like "person.so".
+        self._display_name = model_config.get("display_name") or model_name
         thresholds = model_config.get("thresholds", {})
         self._obj_thresh = float(thresholds.get("obj_thresh", 0.20))
         self._nms_thresh = float(thresholds.get("nms_thresh", 0.65))
@@ -69,7 +75,7 @@ class PersonSoDetector:
                 class_name=CLASSES[0],
                 confidence=float(score),
                 bbox=tuple(box.tolist()),
-                model_name=self._model_name,
+                model_name=self._display_name,
             )
             for box, score in zip(boxes, scores)
         ]

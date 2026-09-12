@@ -4,6 +4,18 @@
 
 model_type: person
 
+# Published in every Detection's "model_name" field sent to the Master
+# (NATS cam.detection) — deliberately NOT the job's model filename
+# (e.g. "person_yolo26n.pt", "person.nb"). The Master's Redis alert-rule
+# engine does an exact-string Redis key match (alert_rule:<camera>:<model>:*)
+# against the model name the rule was authored with in the backend, which
+# is the ENUM value "Person" — not a filename. Sending the filename here
+# means the Redis key lookup never matches and alerts silently never fire,
+# even though detections still land in Postgres (that insert path fuzzy-
+# matches model names, Redis does not). Keep this in sync with whatever
+# the Master's model ENUM/dashboard actually calls this model.
+display_name: Person
+
 classes:
   - person
 num_classes: 1
