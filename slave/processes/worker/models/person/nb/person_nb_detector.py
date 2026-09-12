@@ -37,6 +37,12 @@ LISTSIZE = NUM_CLS + 4 * REG_MAX  # 65
 class PersonNbDetector:
     def __init__(self, model_path: str, library_path: str, model_config: dict, model_name: str) -> None:
         self._model_name = model_name
+        # Published Detection.model_name — the ENUM/display name (e.g.
+        # "Person"), not the job's model filename. See config/models/
+        # person.yaml's `display_name` comment: the Master's Redis
+        # alert-rule lookup is an exact string match and never matches a
+        # raw filename like "person.nb".
+        self._display_name = model_config.get("display_name") or model_name
         self.inference_ms = 0.0
 
         nb_cfg = model_config.get("nb", {})
@@ -113,7 +119,7 @@ class PersonNbDetector:
                 class_name=CLASSES[0],
                 confidence=float(score),
                 bbox=tuple(box.tolist()),
-                model_name=self._model_name,
+                model_name=self._display_name,
             )
             for box, score in zip(boxes, scores)
         ]

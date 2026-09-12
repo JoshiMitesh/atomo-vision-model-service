@@ -11,7 +11,7 @@ Response shape:  {"status": "ok" | "error", "op": "...", "detail": ...}
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from slave.logging.logger import get_logger
 from slave.processes.device.telemetry import sample_telemetry, uptime_seconds
@@ -19,21 +19,22 @@ from slave.processes.device.telemetry import sample_telemetry, uptime_seconds
 log = get_logger(__name__)
 
 
-def execute_command(cmd: Dict[str, Any], slave_id: str) -> Dict[str, Any]:
+def execute_command(cmd: Dict[str, Any], jobs_yaml_path: Optional[str] = None, device_name: str = "unknown-device", ip: str = "") -> Dict[str, Any]:
     op = cmd.get("op")
     params = cmd.get("params", {})
 
     if op == "get_status":
-        telemetry = sample_telemetry(slave_id)
+        telemetry = sample_telemetry(jobs_yaml_path, device_name, ip)
         return {
             "status": "ok",
             "op": op,
             "detail": {
-                "slave_id": telemetry.get("slave_id"),
-                "slave_name": telemetry.get("slave_name"),
+                "device_name": telemetry.get("device_name"),
                 "ip": telemetry.get("ip"),
                 "cpu": telemetry.get("cpu"),
                 "disk": telemetry.get("disk"),
+                "running_cameras": telemetry.get("running_cameras"),
+                "loaded_models": telemetry.get("loaded_models"),
                 "uptime_s": uptime_seconds(),
             },
         }
