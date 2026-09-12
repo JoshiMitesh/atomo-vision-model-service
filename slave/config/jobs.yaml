@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 jobs:
 - job_id: job_001
   camera_id: cam_tapo_105
@@ -7,3 +8,6 @@ jobs:
     model_name: person.nb
     camera_model_assign_id: 032730bb-8d2a-4c93-9c6e-c782e25d27c0
 
+=======
+jobs: []
+>>>>>>> 9ed21a4c4e633b4a73312dd13fa55ae096cfb362

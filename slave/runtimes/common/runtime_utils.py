@@ -220,3 +220,78 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou_thresh: float) -> List[int]:
         order = order[1:][iou <= iou_thresh]
 
     return keep
+
+def decode_grid_multi(
+    tensor: np.ndarray,
+    num_cls: int,
+    reg_max: int,
+    stride: int,
+    obj_thresh: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Multi-class variant of decode_grid() — same DFL math, but also
+    returns which class each box belongs to instead of assuming a
+    single class.
+
+    decode_grid() collapses the per-cell class scores to a single
+    max-of-all-classes value (fine when num_cls==1, as for Person); a
+    multi-class model (e.g. Safety's 9 classes) needs the actual
+    argmax class id per detection too, or every box downstream would
+    silently be reported under the wrong class_name.
+
+    Returns (boxes_xyxy, scores, class_ids) in letterboxed pixel space.
+    """
+    tensor = np.squeeze(tensor, axis=0)  # (listsize, H, W)
+    _, grid_h, grid_w = tensor.shape
+    flat = tensor.reshape(tensor.shape[0], -1)  # (listsize, N)
+
+    cls_logits = flat[:num_cls]  # (num_cls, N)
+    cls_probs = sigmoid(cls_logits)  # (num_cls, N)
+    class_ids = np.argmax(cls_probs, axis=0)  # (N,)
+    scores = cls_probs[class_ids, np.arange(cls_probs.shape[1])]  # (N,) — score of the argmax class only
+
+    keep = scores > obj_thresh
+    if not np.any(keep):
+        return (
+            np.empty((0, 4), dtype=np.float32),
+            np.empty((0,), dtype=np.float32),
+            np.empty((0,), dtype=np.int64),
+        )
+
+    dfl = flat[num_cls:].reshape(4, reg_max, -1)[:, :, keep]  # (4, reg_max, K)
+    dfl = softmax(dfl, axis=1)
+    bins = np.arange(reg_max, dtype=np.float32)
+    ltrb = np.tensordot(bins, dfl, axes=(0, 1)).T * stride  # (K, 4) in pixels
+
+    rows, cols = np.divmod(np.nonzero(keep)[0], grid_w)
+    cx = (cols + 0.5) * stride
+    cy = (rows + 0.5) * stride
+
+    x1 = cx - ltrb[:, 0]
+    y1 = cy - ltrb[:, 1]
+    x2 = cx + ltrb[:, 2]
+    y2 = cy + ltrb[:, 3]
+    boxes = np.stack([x1, y1, x2, y2], axis=1).astype(np.float32)
+
+    return boxes, scores[keep].astype(np.float32), class_ids[keep].astype(np.int64)
+
+
+def nms_multiclass(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    class_ids: np.ndarray,
+    iou_thresh: float,
+) -> List[int]:
+    """Per-class NMS via the standard coordinate-offset trick: shift
+    each box far enough (by class_id * (max_coord+1)) that boxes of
+    different classes can never overlap, then reuse the existing
+    class-agnostic nms(). Needed for Safety (multi-class) so an
+    overlapping "person" box and "no_hardhat" box on the same head
+    never wrongly suppress each other — plain nms() (as used by
+    Person/Face, both single-class) would silently drop one of them.
+    """
+    if boxes.shape[0] == 0:
+        return []
+    max_coord = float(boxes.max()) if boxes.size else 0.0
+    offsets = class_ids.astype(np.float32) * (max_coord + 1.0)
+    boxes_offset = boxes + offsets[:, None]
+    return nms(boxes_offset, scores, iou_thresh)
