@@ -22,12 +22,14 @@ def classify(raw: dict) -> MessageType:
     """Classify a raw decoded NATS payload by shape.
 
     A stop message is ``{"action": "stop", "job_id": ...}``.
-    A job message carries the full job descriptor (no "action" field).
+    A job message carries the full job descriptor (no "action" field) —
+    identified by job_id + model_assignments (there is no top-level
+    model_type anymore, see models/job.py).
     """
     if not isinstance(raw, dict):
         return MessageType.UNKNOWN
     if raw.get("action") == "stop":
         return MessageType.STOP
-    if "model_type" in raw and "job_id" in raw:
+    if "model_assignments" in raw and "job_id" in raw:
         return MessageType.JOB
     return MessageType.UNKNOWN

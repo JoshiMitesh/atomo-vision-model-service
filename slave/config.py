@@ -180,9 +180,17 @@ def load_slave_config(path: str | None = None) -> SlaveConfig: # load_slave_conf
                 return s
         raise ValueError(f"slave.yaml nats.permissions has no subject for {label} (looked in {subjects})")
 
-    job_subject = _pick(subscribe_subjects, lambda s: s == "slave.jobs.start", "job_subject")
-    stop_subject = _pick(subscribe_subjects, lambda s: s == "slave.jobs.stop", "stop_subject")
-    detection_subject = _pick(publish_subjects, lambda s: s == "cam.detection", "detection_subject")
+    # job/stop/detection subjects are now per-device
+    # ("<device_name>.jobs.assign" / ".jobs.unassign" /
+    # "devices.<device_name>.detections") rather than the old flat
+    # "slave.jobs.start"/"slave.jobs.stop"/"cam.detection". Unlike
+    # health/cmd/register below, subscriber.py uses job_subject/
+    # stop_subject as-is with no runtime .format() step, so resolve the
+    # "*" wildcard to this device's own device_name right here.
+    device_name_for_subjects = raw.get("device_name", "unknown-device")
+    job_subject = _pick(subscribe_subjects, lambda s: s.endswith(".jobs.assign"), "job_subject").replace("*", device_name_for_subjects)
+    stop_subject = _pick(subscribe_subjects, lambda s: s.endswith(".jobs.unassign"), "stop_subject").replace("*", device_name_for_subjects)
+    detection_subject = _pick(publish_subjects, lambda s: s.startswith("devices.") and s.endswith(".detections"), "detection_subject").replace("*", device_name_for_subjects)
     upload_subject = detection_subject  # same subject today, both roles share it
     health_subject = _pick(publish_subjects, lambda s: s.startswith("devices.") and s.endswith(".health"), "health_subject").replace("*", "{device_name}")
     cmd_subject = _pick(subscribe_subjects, lambda s: s.startswith("devices.") and s.endswith(".cmd"), "cmd_subject").replace("*", "{device_name}")

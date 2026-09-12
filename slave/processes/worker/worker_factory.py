@@ -1,11 +1,22 @@
-"""Instantiates the concrete Person worker for a resolved job.
+"""Instantiates the concrete Person/Face/Safety worker for a resolved job.
 
 Pure construction — no business logic lives here (CLAUDE.md §22: "do
 not put all model logic in worker_factory.py"). model_manager.py looks
 up *which* worker class to build via model_registry.py; this module
 only wires a job's config and the process-wide shared services into
 that class.
+
+Person AND Safety jobs each get an extra face_controller (the
+auto-triggered Face detector — config/models/face.yaml's
+`trigger.enabled` toggles it on/off for BOTH model types, one shared
+flag). Person's worker gates the trigger on its own person detections;
+Safety's worker gates it on just its own "person" class among its 9
+classes (see safety_*_worker.py). Standalone Face jobs (model_type:
+"face") don't take a face_controller at all — they run their own Face
+detector directly, unconditionally, on their own stream/job (see
+processes/worker/models/face/{pt,nb,so}/face_*_worker.py).
 """
+
 
 from __future__ import annotations
 
@@ -23,6 +34,18 @@ from slave.processes.worker.face.face_factory import build_face_controller
 
 
 @dataclass(frozen=True)
+class WorkerIdentity:
+    """Message-envelope identity shared by every worker (person or
+    face) — the parts of cam.detection's `source` object that come
+    from this device/config rather than from a per-frame detection.
+    """
+
+    branch_id: str
+    device_id: str
+    stream_host: str
+
+
+@dataclass(frozen=True)
 class WorkerServices:
     """Process-wide collaborators shared (read-only) across all jobs."""
 
@@ -34,6 +57,9 @@ class WorkerServices:
     video_temp_dir: str
     video_segment_seconds: int
     video_fps: int
+    stream_host: str  # RTSP host used to resolve camera_id -> stream URL, see stream_connector.py
+    branch_id: str
+    device_id: str
 
 
 def create_worker(
@@ -53,22 +79,38 @@ def create_worker(
         fps=services.video_fps,
     )
 
-    # Face detection is auto-triggered by the Person worker itself, on
-    # the same stream/frame — it is never a separate jobs.yaml entry,
-    # so it's wired in here rather than through model_registry.py.
-    face_controller = build_face_controller(
-        job_id=job.job_id,
-        model_extension=resolved.model_extension,
-        models_root=services.models_root,
-        config_root=services.config_root,
+    identity = WorkerIdentity(
+        branch_id=services.branch_id,
+        device_id=services.device_id,
+        stream_host=services.stream_host,
     )
 
-    return worker_cls(
+    common_kwargs = dict(
         job=job,
         model_config=model_config,
         models_dir=models_dir,
         detection_publisher=services.detection_publisher,
         frame_uploader=services.frame_uploader,
         video_manager=video_manager,
-        face_controller=face_controller,
+        identity=identity,
     )
+
+    if resolved.model_type in ("person", "safety"):
+        # Face detection is auto-triggered by the Person/Safety worker
+        # itself, on the same stream/frame — it is never a separate
+        # jobs.yaml entry for this path, so it's wired in here rather
+        # than through model_registry.py. Both share the same
+        # config/models/face.yaml trigger.enabled flag; each worker's
+        # own _process_frame() decides what counts as "triggered"
+        # (Person: any person detection; Safety: its own "person"
+        # class only).
+        face_controller = build_face_controller(
+            job_id=job.job_id,
+            model_extension=resolved.model_extension,
+            models_root=services.models_root,
+            config_root=services.config_root,
+        )
+        return worker_cls(face_controller=face_controller, **common_kwargs)
+
+    return worker_cls(**common_kwargs)
+

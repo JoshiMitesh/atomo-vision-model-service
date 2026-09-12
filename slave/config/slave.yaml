@@ -10,7 +10,7 @@ device_id: 32bf38de-4145-4cab-839b-65d5156c22cc
 device_name: savan-patel-victus
 password: '190325'
 device_role: slave
-ip: 192.168.1.11
+ip: 192.168.1.17
 dns_name: atomo-master.local
 mac_id: '24:fb:e3:c2:a0:1a'
 serial_no: SN-0001
@@ -18,11 +18,11 @@ status: Active
 approval_status: approved
 
 nats:
-  host: atomo-master2.local
+  host: 192.168.1.17
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
-  user: slave01
+  user: electron
   password: '190325'
   # Optional auth — leave both null for an unauthenticated NATS server
   # (matches current behavior). Set per-device before deploying.
@@ -30,11 +30,23 @@ nats:
   # config.py's load_slave_config() picks job/stop/detection/upload/
   # health/cmd/register subjects out of these two lists instead of
   # declaring them separately, so a subject actually has to be granted
-  # here to be usable. devices.*.detections isn't published by any
-  # code yet — carried through as-is from the granted permissions.
+  # here to be usable. Every "*" below is resolved to this file's own
+  # top-level device_name (savan-patel-victus, above) at load time —
+  # deliberately NOT spelled out literally here, so changing device_name
+  # once at the top automatically carries through to every permission
+  # without editing this list. job/stop/detection subjects are per-device
+  # (<device_name>.jobs.assign/.unassign, devices.<device_name>.detections)
+  # instead of the old flat slave.jobs.start/slave.jobs.stop/cam.detection.
   permissions:
-    publish: ["devices.*.register", "devices.*.health", "devices.*.detections", "cam.detection"]
-    subscribe: ["_INBOX.>", "slave.jobs.start", "slave.jobs.stop", "devices.*.cmd"]
+    publish:
+      - devices.*.register
+      - devices.*.health
+      - devices.*.detections
+    subscribe:
+      - _INBOX.>
+      - "*.jobs.assign"
+      - "*.jobs.unassign"
+      - devices.*.cmd
 
 # Device timing for the health/telemetry/command channel
 # (processes/device/) — identity lives at the top of this file now.
@@ -46,7 +58,7 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.11:9000
+  endpoint: 192.168.1.17:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: person-detections
