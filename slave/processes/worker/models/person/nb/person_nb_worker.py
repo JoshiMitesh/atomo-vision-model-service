@@ -22,7 +22,6 @@ from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
-from slave.processes.stream.stream_connector import build_stream_url
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.person.nb import npu_round_robin_scheduler as scheduler_registry
@@ -54,7 +53,7 @@ class PersonNbWorker:
         self._model_path = os.path.join(models_dir, job.model_name)
         self._library_path = os.path.join(models_dir, library_file) if library_file else None
 
-        url = build_stream_url(identity.stream_host, job.camera_id)
+        url = job.camera_stream
         self._frame_reader = FrameReader(job.job_id, url)
 
         self._scheduler = scheduler_registry.get_shared_scheduler(
