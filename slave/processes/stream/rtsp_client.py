@@ -12,39 +12,66 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-_FFMPEG_OPTIONS = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0|buffer_size;65536|threads;1"
+_FFMPEG_OPTIONS = (
+    "rtsp_transport;tcp|"
+    "fflags;nobuffer|"
+    "flags;low_delay|"
+    "max_delay;0|"
+    "buffer_size;65536|"
+    "analyzeduration;1000000|"
+    "probesize;1000000|"
+    "reorder_queue_size;0|"
+    "fflags;discardcorrupt|"
+    "threads;1"
+)
 
 
 class RtspClient:
-    def __init__(self, url: str, decode_every_n_frames: int = 8) -> None:
+    def __init__(self, url: str, decode_every_n_frames: int = 5) -> None:
         self._url = url
         self._cap: cv2.VideoCapture | None = None
         self._decode_every_n_frames = max(1, int(decode_every_n_frames))
         self._read_counter = 0
+        self._last_error = ""
 
     def connect(self) -> bool:
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = _FFMPEG_OPTIONS
         self._cap = cv2.VideoCapture(self._url, cv2.CAP_FFMPEG)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if hasattr(cv2, "CAP_PROP_THREAD_COUNT"):
-            # Belt-and-suspenders alongside threads;1 above and the
-            # process-wide cv2.setNumThreads(1) in main.py.
             self._cap.set(cv2.CAP_PROP_THREAD_COUNT, 1)
-        return self._cap.isOpened()
+        ok = self._cap.isOpened()
+        if not ok:
+            self._last_error = "OpenCV could not open RTSP stream"
+        return ok
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         if self._cap is None:
+            self._last_error = "video capture is not initialized"
             return False, None
-        # grab() is lighter than retrieve() and lets us skip expensive
-        # decode work for stale frames. This matches the reference script's
-        # low-CPU pattern: only decode every Nth frame instead of decoding
-        # every RTSP packet the camera sends.
-        if not self._cap.grab():
-            return False, None
+
         self._read_counter += 1
         if self._read_counter % self._decode_every_n_frames != 0:
             return True, None
-        return self._cap.retrieve()
+
+        if not self._cap.grab():
+            self._last_error = "OpenCV grab() failed"
+            return False, None
+
+        ok, frame = self._cap.retrieve()
+        if not ok or frame is None:
+            # Corrupt H.264 packets can make FFmpeg fail a single frame
+            # without the entire RTSP stream being dead. Treat that as a
+            # dropped frame so we do not reconnect the whole stream on
+            # every bad packet. Real connection loss still triggers the
+            # grab() failure path below.
+            self._last_error = "OpenCV retrieve() failed; skipping corrupt frame"
+            return True, None
+
+        return True, frame
+
+    def get_last_error(self) -> str:
+        return self._last_error
 
     def release(self) -> None:
         if self._cap is not None:

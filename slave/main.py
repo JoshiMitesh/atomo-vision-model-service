@@ -26,6 +26,8 @@ for _env_var in (
     "MKL_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS",
     "NUMEXPR_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+    "OPENCV_FFMPEG_THREADS",
 ):
     os.environ.setdefault(_env_var, "1")
 

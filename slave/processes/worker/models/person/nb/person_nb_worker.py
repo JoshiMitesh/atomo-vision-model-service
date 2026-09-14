@@ -50,7 +50,7 @@ class PersonNbWorker:
         self._face_controller = face_controller
         self._log = get_logger(__name__, job_id=job.job_id)
         self._low_cpu_mode = bool(model_config.get("nb", {}).get("low_cpu_mode", True))
-        self._publish_every_n_frames = max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 4)))
+        self._publish_every_n_frames = max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 5)))
         self._frame_counter = 0
 
         library_file = model_config.get("nb", {}).get("library_file", "")
@@ -97,25 +97,24 @@ class PersonNbWorker:
         face_detections = self._face_controller.update(frame.image, person_detections)
         detections = person_detections + face_detections
 
-        # Reference-style low-CPU mode: preserve the shared-NPU round-robin
-        # architecture but skip the expensive image upload/annotation/video
-        # work in the hot path. This matches the working board-safe script,
-        # which keeps inference cheap and avoids burning CPU on frame I/O.
+        # Keep the low-CPU cadence, but still upload sampled annotated
+        # frames when this publish window is active. This avoids burning
+        # CPU on every frame while still making detection images visible in
+        # MinIO when a published frame actually contains detections.
         object_key = url = None
         width = height = None
         annotated = None
-        if not self._low_cpu_mode:
-            if detections:
-                annotated = draw_detections(frame.image, detections)
-                upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
-                if upload_info is not None:
-                    object_key, url = upload_info
-            if object_key is not None:
-                height, width = (int(v) for v in frame.image.shape[:2])
+        if detections:
+            annotated = draw_detections(frame.image, detections)
+            upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
+            if upload_info is not None:
+                object_key, url = upload_info
+        if object_key is not None:
+            height, width = (int(v) for v in frame.image.shape[:2])
 
         # tracking_id is the frame's saved MinIO image id, not a real
-        # per-object tracker. In low-CPU mode we intentionally leave this
-        # null to avoid the upload overhead of the reference script.
+        # per-object tracker. In low-CPU mode we still keep it null unless
+        # the upload succeeded for this sampled frame.
         telemetry = group_detections(detections, self._job, tracking_id=object_key)
 
         result = DetectionResult(

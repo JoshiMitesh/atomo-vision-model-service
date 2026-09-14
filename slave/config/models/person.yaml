@@ -61,11 +61,9 @@ nb:
   # (same directory as the .nb model file itself).
   library_file: person.so
   low_cpu_mode: true        # matches the reference script: inference-only hot path, no MinIO upload or video recording per frame.
-  publish_every_n_frames: 8 # sample every 8th processed frame to keep CPU and NATS load under control.
-  process_interval: 0.0     # reference-style shared NPU scheduler: no extra pause beyond the round-robin
-                             # cadence itself; the scheduler is intentionally conservative and skips stale frames.
-  target_fps: 2             # board-safe baseline matching the known-good reference behavior for multiple
-                             # cameras on the same NPU; this keeps CPU low while preserving usable detections.
+  publish_every_n_frames: 8  # sample every 8th processed frame to keep CPU and NATS load under control.
+  process_interval: 0.0      # reference-style shared NPU scheduler: no extra pause beyond the round-robin cadence itself.
+  target_fps: 2              # board-safe baseline matching the known-good reference behavior for multiple cameras.
 
   # NB-path-only detection tuning (person_nb_detector.py). Overrides
   # the shared thresholds: block above for this path only — .pt/.so
@@ -73,17 +71,17 @@ nb:
   # two-stage confidence gate (gather -> DFL-certainty), a person
   # aspect-ratio geometry filter, a small-box area filter, and a
   # head-texture false-positive filter, then OpenCV NMS.
-  obj_thresh: 0.28             # final NMS score threshold
-  nms_thresh: 0.25             # separates side-by-side people without merging
-  candidate_gather_thresh: 0.18   # low bar to gather DFL candidates before certainty filtering
-  dfl_certainty_thresh: 0.18      # discards fuzzy/background-noise boxes
-  min_aspect_ratio: 0.80           # h/w — discards horizontal (table/sofa/floor) clutter
-  min_small_box_area: 2500.0       # px^2 — small+low-confidence boxes (bags, etc.) discarded
-  small_box_score_thresh: 0.43     # confidence below this on a small box gets it dropped
-  high_conf_bypass: 0.55           # detections at/above this skip the head-texture check
-  head_texture_std_thresh: 7.0     # grayscale STD below this on the head crop = uniform/false positive
-  head_texture_score_thresh: 0.52  # only discard low-STD heads below this confidence too
-  MIN_BOX_HEIGHT_PX: 30            
+  obj_thresh: 0.16             # final universal sensitivity for office + crowded scenes
+  nms_thresh: 0.26             # still keeps adjacent boxes separated without excessive merging
+  candidate_gather_thresh: 0.10   # wider candidate gathering for weak but genuine people
+  dfl_certainty_thresh: 0.10      # loosens certainty filtering for small/partially occluded people
+  min_aspect_ratio: 0.55           # tolerant for seated/tilted/partially visible person shapes
+  min_small_box_area: 900.0       # px^2 — catches smaller people in dense rooms
+  small_box_score_thresh: 0.28     # lets small boxes through more readily when they are likely people
+  high_conf_bypass: 0.45           # lower bypass threshold for confident detections
+  head_texture_std_thresh: 9.0     # mild head-texture filter to keep false positives low
+  head_texture_score_thresh: 0.38  # softer crowd-scene filtering
+  MIN_BOX_HEIGHT_PX: 14            
 
 so:
   # Native .so inference library options (see runtimes/npu/so_runtime.py).

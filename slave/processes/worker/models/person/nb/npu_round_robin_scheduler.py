@@ -50,8 +50,8 @@ class NpuRoundRobinScheduler:
     def __init__(
         self,
         detector: PersonNbDetector,
-        target_fps: float = 4.0,
-        process_interval: float = 0.25,
+        target_fps: float = 2.0,
+        process_interval: float = 0.0,
     ) -> None:
         self._detector = detector
         self._sources: "OrderedDict[str, _Registration]" = OrderedDict()
@@ -139,9 +139,9 @@ class NpuRoundRobinScheduler:
                 time.sleep(0.001)
                 continue
 
-            frame = reg.frame_reader.get_latest_frame(timeout=0.0)
+            frame = reg.frame_reader.get_latest_frame(timeout=0.02)
             if frame is None:
-                time.sleep(0.001)
+                time.sleep(0.01)
                 continue
 
             try:
