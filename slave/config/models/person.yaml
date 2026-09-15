@@ -60,10 +60,12 @@ nb:
   # Filename only, resolved against processes/worker/models/person/
   # (same directory as the .nb model file itself).
   library_file: person.so
-  low_cpu_mode: true        # matches the reference script: inference-only hot path, no MinIO upload or video recording per frame.
-  publish_every_n_frames: 8  # sample every 8th processed frame to keep CPU and NATS load under control.
+  low_cpu_mode: true        # keep video work disabled while detection remains live.
+  decode_every_n_frames: 3   # reduce conversion work while keeping a fresh frame available.
+  publish_every_n_frames: 1  # publish every inference result; no intentional publish delay.
+  minio_upload_interval_seconds: 4.0  # keep image storage bounded without delaying live detection messages.
   process_interval: 0.0      # reference-style shared NPU scheduler: no extra pause beyond the round-robin cadence itself.
-  target_fps: 2              # board-safe baseline matching the known-good reference behavior for multiple cameras.
+  target_fps: 5              # live detection cadence for the shared NPU scheduler.
 
   # NB-path-only detection tuning (person_nb_detector.py). Overrides
   # the shared thresholds: block above for this path only — .pt/.so
