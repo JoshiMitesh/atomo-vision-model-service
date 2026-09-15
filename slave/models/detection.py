@@ -26,6 +26,7 @@ _CLASS_META: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "person": ("person_count_detected", ("gender",)),
     "face": ("face_recognized", ("name", "authorized", "known")),
     "fire": ("fire_detected", ("density",)),
+    "smoke": ("smoke_detected", ()),
 }
 _DEFAULT_EVENT_TYPE = "{class_name}_detected"
 

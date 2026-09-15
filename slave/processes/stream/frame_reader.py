@@ -21,9 +21,9 @@ RECONNECT_BACKOFF_SECONDS = 2.0
 
 
 class FrameReader:
-    def __init__(self, job_id: str, url: str) -> None:
+    def __init__(self, job_id: str, url: str, decode_every_n_frames: int = 3) -> None:
         self._job_id = job_id
-        self._client = RtspClient(url)
+        self._client = RtspClient(url, decode_every_n_frames=decode_every_n_frames)
         self._queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
         self._frame_ids = FrameIdGenerator()
         self._stop_event = threading.Event()
@@ -66,15 +66,32 @@ class FrameReader:
 
     def _run(self) -> None:
         if not self._client.connect():
-            self._log.warning("initial RTSP connect failed, will retry")
+            error = self._client.get_last_error()
+            if error:
+                self._log.warning("initial RTSP connect failed, will retry: %s", error)
+            else:
+                self._log.warning("initial RTSP connect failed, will retry")
             self._set_status("offline")
 
         while not self._stop_event.is_set():
             ok, image = self._client.read()
-            if not ok or image is None:
-                self._log.warning("RTSP read failed, reconnecting")
+            if not ok:
+                error = self._client.get_last_error()
+                if error:
+                    self._log.warning("RTSP read failed, reconnecting: %s", error)
+                else:
+                    self._log.warning("RTSP read failed, reconnecting")
                 self._set_status("reconnecting")
                 self._reconnect_with_backoff()
+                continue
+
+            if image is None:
+                # decode_every_n_frames (when >1) intentionally skips
+                # most frames to reduce CPU work; this is not an RTSP
+                # failure. Sleep briefly so the reader thread does not
+                # spin in a tight loop while waiting for the next
+                # decodable frame.
+                time.sleep(0.01)
                 continue
 
             self._set_status("online")

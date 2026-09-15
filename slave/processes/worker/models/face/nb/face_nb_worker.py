@@ -22,7 +22,7 @@ import threading
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
-from slave.models.job import JobConfig
+from slave.models.job import JobConfig, ModelAssignment
 from slave.processes.detection.detection_result import DetectionResult
 from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
@@ -40,6 +40,8 @@ class FaceNbWorker:
     def __init__(
         self,
         job: JobConfig,
+        assignment: ModelAssignment,
+        worker_key: str,
         model_config: dict,
         models_dir: str,
         detection_publisher: DetectionPublisher,
@@ -48,6 +50,7 @@ class FaceNbWorker:
         identity: WorkerIdentity,
     ) -> None:
         self._job = job
+        self._worker_key = worker_key
         self._detection_publisher = detection_publisher
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
@@ -55,15 +58,15 @@ class FaceNbWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         library_file = model_config.get("nb", {}).get("library_file", "")
-        model_path = os.path.join(models_dir, job.model_name)
+        model_path = os.path.join(models_dir, assignment.model_name)
         library_path = os.path.join(models_dir, library_file) if library_file else None
-        self._detector = FaceNbDetector(model_path, library_path, model_config, job.model_name)
+        self._detector = FaceNbDetector(model_path, library_path, model_config, assignment.model_name)
 
         url = job.camera_stream
-        self._frame_reader = FrameReader(job.job_id, url)
+        self._frame_reader = FrameReader(worker_key, url)
 
         self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, name=f"face-nb-{job.job_id}", daemon=True)
+        self._thread = threading.Thread(target=self._run, name=f"face-nb-{worker_key}", daemon=True)
 
     def start(self) -> None:
         self._frame_reader.start()
@@ -96,7 +99,7 @@ class FaceNbWorker:
         annotated = None
         if detections:
             annotated = draw_detections(frame.image, detections)
-            upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
+            upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
             if upload_info is not None:
                 object_key, url = upload_info
 
