@@ -12,6 +12,7 @@ on the scheduler thread, at that job's turn.
 from __future__ import annotations
 
 import os
+import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -51,6 +52,8 @@ class PersonNbWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
         self._low_cpu_mode = bool(model_config.get("nb", {}).get("low_cpu_mode", True))
         self._publish_every_n_frames = max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 5)))
+        self._minio_upload_interval = max(0.0, float(model_config.get("nb", {}).get("minio_upload_interval_seconds", 4.0)))
+        self._last_minio_upload = 0.0
         self._frame_counter = 0
 
         library_file = model_config.get("nb", {}).get("library_file", "")
@@ -61,7 +64,7 @@ class PersonNbWorker:
         self._frame_reader = FrameReader(
             job.job_id,
             url,
-            decode_every_n_frames=max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 8))),
+            decode_every_n_frames=max(1, int(model_config.get("nb", {}).get("decode_every_n_frames", 3))),
         )
 
         self._scheduler = scheduler_registry.get_shared_scheduler(
@@ -104,11 +107,13 @@ class PersonNbWorker:
         object_key = url = None
         width = height = None
         annotated = None
-        if detections:
+        upload_due = time.monotonic() - self._last_minio_upload >= self._minio_upload_interval
+        if detections and upload_due:
             annotated = draw_detections(frame.image, detections)
             upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
             if upload_info is not None:
                 object_key, url = upload_info
+            self._last_minio_upload = time.monotonic()
         if object_key is not None:
             height, width = (int(v) for v in frame.image.shape[:2])
 

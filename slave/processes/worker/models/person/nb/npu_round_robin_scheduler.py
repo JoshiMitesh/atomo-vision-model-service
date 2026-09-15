@@ -60,6 +60,7 @@ class NpuRoundRobinScheduler:
         self._thread: Optional[threading.Thread] = None
         self._index = 0
         self._turn_count = 0
+        self._last_status_log = 0.0
         self.total_inference_fps = 0.0
         self._log = get_logger(__name__)
 
@@ -126,7 +127,7 @@ class NpuRoundRobinScheduler:
             self._index += 1
             self._turn_count += 1
             cycle_order = " -> ".join(job_ids)
-            self._log.info("rr-cycle order=%s turn=%d selected=%s", cycle_order, self._turn_count, job_id)
+            self._log.debug("rr-cycle order=%s turn=%d selected=%s", cycle_order, self._turn_count, job_id)
 
             with self._lock:
                 reg = self._sources.get(job_id)
@@ -140,7 +141,7 @@ class NpuRoundRobinScheduler:
             # than dividing a fixed total budget across jobs.
             now = time.monotonic()
             elapsed_since_last = now - self._last_detected.get(job_id, 0.0)
-            self._log.info(
+            self._log.debug(
                 "rr-turn=%d selected_job=%s remaining_jobs=%d interval_elapsed=%.3f min_detect_interval=%.3f",
                 self._turn_count,
                 job_id,
@@ -149,7 +150,7 @@ class NpuRoundRobinScheduler:
                 self._min_detect_interval,
             )
             if elapsed_since_last < self._min_detect_interval:
-                self._log.info(
+                self._log.debug(
                     "skip rr-turn job_id=%s because elapsed=%.3f < min_detect_interval=%.3f",
                     job_id,
                     elapsed_since_last,
@@ -160,7 +161,7 @@ class NpuRoundRobinScheduler:
 
             frame = reg.frame_reader.get_latest_frame(timeout=0.02)
             if frame is None:
-                self._log.info("rr-turn job_id=%s has no latest frame yet; moving to next job", job_id)
+                self._log.debug("rr-turn job_id=%s has no latest frame yet; moving to next job", job_id)
                 time.sleep(0.01)
                 continue
 
@@ -172,7 +173,16 @@ class NpuRoundRobinScheduler:
                 continue
 
             self._last_detected[job_id] = now
-            self._log.info("rr-execute job_id=%s frame_id=%s detections=%d", job_id, frame.frame_id, len(detections))
+            self._log.debug("rr-execute job_id=%s frame_id=%s detections=%d", job_id, frame.frame_id, len(detections))
+            if now - self._last_status_log >= 10.0:
+                self._last_status_log = now
+                self._log.info(
+                    "detection active job_id=%s frame_id=%s detections=%d inference_fps=%.2f",
+                    job_id,
+                    frame.frame_id,
+                    len(detections),
+                    self.total_inference_fps,
+                )
 
             try:
                 reg.on_detections(frame, detections)
