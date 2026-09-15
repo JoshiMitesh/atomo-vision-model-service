@@ -63,7 +63,7 @@ minio:
   secret_key: minioadmin
   bucket: person-detections
   secure: false
-  enabled: True   # skip MinIO frame/video uploads for now — set back to true when needed
+  enabled: false   # skip MinIO frame/video uploads for now — set back to true when needed
 
 video:
   segment_seconds: 30
