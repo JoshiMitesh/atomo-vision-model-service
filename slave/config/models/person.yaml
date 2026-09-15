@@ -71,7 +71,7 @@ nb:
   # two-stage confidence gate (gather -> DFL-certainty), a person
   # aspect-ratio geometry filter, a small-box area filter, and a
   # head-texture false-positive filter, then OpenCV NMS.
-  obj_thresh: 0.16             # final universal sensitivity for office + crowded scenes
+  obj_thresh: 0.30             # final universal sensitivity for office + crowded scenes
   nms_thresh: 0.26             # still keeps adjacent boxes separated without excessive merging
   candidate_gather_thresh: 0.10   # wider candidate gathering for weak but genuine people
   dfl_certainty_thresh: 0.10      # loosens certainty filtering for small/partially occluded people
