@@ -1,11 +1,12 @@
 """Registry of (model_type, model_extension) -> worker builder.
 
 The registry is deliberately dumb: it just maps supported combinations
-to the callable that builds the right worker class. `person` and
-standalone `face` are registered today; fire/fight are rejected until
-implemented (CLAUDE.md §7, §22 — note Face going standalone here is a
-deliberate, explicitly-requested exception to CLAUDE.md's "Person
-only" scope, not a silent expansion).
+to the callable that builds the right worker class. `person`,
+standalone `face`, `safety`, and standalone `fire` are registered
+today; `fight` is rejected until implemented (CLAUDE.md §7, §22 —
+note Face/Safety/Fire going standalone here are deliberate,
+explicitly-requested exceptions to CLAUDE.md's "Person only" scope,
+not a silent expansion).
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Callable, Dict, Tuple
 
 WorkerBuilder = Callable[..., object]
 
-SUPPORTED_MODEL_TYPES = ("person", "face", "safety")
+SUPPORTED_MODEL_TYPES = ("person", "face", "safety", "fire")
 SUPPORTED_EXTENSIONS = (".pt", ".nb", ".so")
 
 
@@ -46,8 +47,8 @@ class ModelRegistry: # model registry is a class that maintains a mapping of sup
         return self._builders[key]
 
 
-def build_default_registry() -> ModelRegistry: # build_default_registry is a function that creates and returns a ModelRegistry instance pre-populated with the current worker builders for the "person"/"face" model types and their supported extensions (".pt", ".nb", ".so"). It imports the necessary worker classes and registers them with the registry, allowing the system to retrieve the appropriate worker builder based on the model type and extension.
-    """Registry wired with the current Person + standalone Face worker builders."""
+def build_default_registry() -> ModelRegistry: # build_default_registry is a function that creates and returns a ModelRegistry instance pre-populated with the current worker builders for the "person"/"face"/"safety"/"fire" model types and their supported extensions (".pt", ".nb", ".so"). It imports the necessary worker classes and registers them with the registry, allowing the system to retrieve the appropriate worker builder based on the model type and extension.
+    """Registry wired with the current Person + standalone Face/Safety/Fire worker builders."""
     from slave.processes.worker.models.person.pt.person_pt_worker import PersonPtWorker
     from slave.processes.worker.models.person.nb.person_nb_worker import PersonNbWorker
     from slave.processes.worker.models.person.so.person_so_worker import PersonSoWorker
@@ -57,6 +58,9 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     from slave.processes.worker.models.safety.pt.safety_pt_worker import SafetyPtWorker
     from slave.processes.worker.models.safety.nb.safety_nb_worker import SafetyNbWorker
     from slave.processes.worker.models.safety.so.safety_so_worker import SafetySoWorker
+    from slave.processes.worker.models.fire.pt.fire_pt_worker import FirePtWorker
+    from slave.processes.worker.models.fire.nb.fire_nb_worker import FireNbWorker
+    from slave.processes.worker.models.fire.so.fire_so_worker import FireSoWorker
 
     registry = ModelRegistry() # creates a new ModelRegistry instance
     registry.register("person", ".pt", PersonPtWorker) # model_type is "person", model_extension is ".pt", and the corresponding worker builder is PersonPtWorker. This registers the PersonPtWorker class as the worker builder for the combination of model_type "person" and model_extension ".pt".
@@ -68,4 +72,7 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     registry.register("safety", ".pt", SafetyPtWorker)   # standalone Safety job — 9-class PPE-compliance detector, also face-controller-attached (Face auto-triggers off Safety's own "person" class, see worker_factory.py).
     registry.register("safety", ".nb", SafetyNbWorker)
     registry.register("safety", ".so", SafetySoWorker)
+    registry.register("fire", ".pt", FirePtWorker)   # standalone Fire job — 3-class (fire/other/smoke) detector, no face_controller (worker_factory.py only attaches one to "person"/"safety").
+    registry.register("fire", ".nb", FireNbWorker)
+    registry.register("fire", ".so", FireSoWorker)
     return registry # returns the fully constructed ModelRegistry instance with the registered worker builders for the supported (model_type, model_extension) combinations.

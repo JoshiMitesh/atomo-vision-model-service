@@ -36,13 +36,13 @@ class JobManager:
 
     def _handle_added(self, diff: JobDiff) -> None:
         assert diff.job is not None
-        worker = self._model_manager.build_worker(diff.job)
-        self._worker_manager.start_worker(diff.job_id, worker)
+        workers = self._model_manager.build_workers(diff.job)
+        self._worker_manager.start_worker(diff.job_id, workers)
 
     def _handle_removed(self, diff: JobDiff) -> None:
         self._worker_manager.stop_worker(diff.job_id)
 
     def _handle_changed(self, diff: JobDiff) -> None:
         assert diff.job is not None
-        worker = self._model_manager.build_worker(diff.job)
-        self._worker_manager.restart_worker(diff.job_id, worker)
+        workers = self._model_manager.build_workers(diff.job)
+        self._worker_manager.restart_worker(diff.job_id, workers)

@@ -1,1 +1,9 @@
-jobs: []
+jobs:
+- job_id: job_001
+  camera_id: 299fb8ff-bed6-56d4-bd38-f03e94188484
+  camera_stream: rtsp://192.168.1.17:8554/cam_tapo_105
+  zone_id: main-entrance
+  model_assignments:
+  - model_type: person
+    model_name: person.pt
+    camera_model_assign_id: e2614457-852f-5aef-8e4d-9c6006452b1d
