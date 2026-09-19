@@ -88,7 +88,10 @@ class NbRuntime:
             # ~/p2.py on the board: `asnn("Electron")`), unlike KSNN.
             self._handle = sdk.asnn(self._board)
 
-        self._handle.nn_init(library=self._library_path, model=self._model_path, level=self._level)
+        result = self._handle.nn_init(library=self._library_path, model=self._model_path, level=self._level)
+        # The on-board reference scripts treat a result without 'SUCCESS' as a failed init.
+        if result is not None and "SUCCESS" not in str(result):
+            log.warning("NPU nn_init returned an unexpected result: %r (model=%s)", result, self._model_path)
         log.info(
             "NPU handle initialized (sdk=%s, board=%s, model=%s, library=%s, level=%s)",
             sdk.__name__, self._board, self._model_path, self._library_path, self._level,
@@ -112,7 +115,11 @@ class NbRuntime:
     def release(self) -> None:
         if self._handle is not None:
             try:
-                release_fn = getattr(self._handle, "release", None) or getattr(self._handle, "nn_release", None)
+                release_fn = (
+                    getattr(self._handle, "release", None)
+                    or getattr(self._handle, "nn_release", None)
+                    or getattr(self._handle, "nn_deinit", None)  # what the on-board reference scripts call
+                )
                 if release_fn:
                     release_fn()
             except Exception:

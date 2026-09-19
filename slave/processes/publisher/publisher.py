@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 
 import nats
 
@@ -27,6 +28,7 @@ class Publisher:
         self._nc: nats.aio.client.Client | None = None # NATS client instance
         self._thread = threading.Thread(target=self._run_loop, name="publisher-loop", daemon=True) # background thread for the event loop
         self._ready = threading.Event() # event to signal when the publisher is ready to publish messages
+        self._last_drop_log = 0.0  # monotonic timestamp of the last "dropping message" warning — rate-limits that log while disconnected instead of one line per dropped message
 
     def _run_loop(self) -> None: # runs the event loop in a separate thread
         asyncio.set_event_loop(self._loop) # sets the event loop for the current thread to the newly created event loop
@@ -76,13 +78,16 @@ class Publisher:
     def publish(self, subject: str, payload: dict) -> None: # publishes a message to the specified subject on the NATS server, using the provided payload. This method is thread-safe and can be called from any worker thread.
         """Fire-and-forget publish, safe to call from any worker thread."""
         if self._nc is None:
-            import time as _t
-            now = _t.monotonic()
-            if now - getattr(self, "_last_drop_log", 0.0) >= 5.0:  # TEMP: sample one dropped payload every 5s for diagnostics
+            # While disconnected, a worker running at full frame rate can
+            # call this dozens of times a second — logging every single
+            # drop floods the terminal with near-duplicate lines. Log a
+            # sample at most once every 5s instead; every other drop in
+            # between is silent (the messages are gone either way, this
+            # only controls how noisy that fact is).
+            now = time.monotonic()
+            if now - self._last_drop_log >= 5.0:
                 self._last_drop_log = now
-                log.warning("dropping message on %s, sample payload=%s", subject, json.dumps(payload))
-            else:
-                log.warning("publish attempted before connection ready, dropping message on %s", subject) # logs a warning message indicating that the publish attempt was made before the publisher was ready to publish messages, and that the message will be dropped
+                log.warning("NATS not connected — dropping messages on %s (sample payload=%s)", subject, json.dumps(payload))
             return
         data = json.dumps(payload).encode("utf-8") # serializes the payload to a JSON string and encodes it as bytes
         asyncio.run_coroutine_threadsafe(self._nc.publish(subject, data), self._loop)  # schedules the publish coroutine to be run on the event loop in the background thread, allowing the message to be published to the NATS server without blocking the calling thread

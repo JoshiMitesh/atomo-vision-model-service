@@ -14,14 +14,13 @@ import numpy as np
 
 _FFMPEG_OPTIONS = (
     "rtsp_transport;tcp|"
-    "fflags;nobuffer|"
+    "fflags;nobuffer+discardcorrupt|"
     "flags;low_delay|"
     "max_delay;0|"
     "buffer_size;65536|"
     "analyzeduration;1000000|"
     "probesize;1000000|"
     "reorder_queue_size;0|"
-    "fflags;discardcorrupt|"
     "threads;1"
 )
 
