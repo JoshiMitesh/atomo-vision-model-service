@@ -1,9 +1,9 @@
 jobs:
-- job_id: job_001
-  camera_id: 299fb8ff-bed6-56d4-bd38-f03e94188484
-  camera_stream: rtsp://192.168.1.17:8554/cam_tapo_105
-  zone_id: main-entrance
+- job_id: job_plate_test_001
+  camera_id: 38908c03-15e3-4ce6-ad15-ee9d159affde
+  camera_stream: rtsp://192.168.1.17:8554/cam06
+  zone_id: ddf5c5c9-c63d-51fb-96b2-e5b9732be179
   model_assignments:
-  - model_type: person
-    model_name: person.pt
-    camera_model_assign_id: e2614457-852f-5aef-8e4d-9c6006452b1d
+  - model_type: number_plate
+    model_name: number_plate.pt
+    camera_model_assign_id: c4eca180-5473-4917-b78d-1f2679cdf242

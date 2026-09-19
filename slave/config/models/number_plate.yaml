@@ -1,0 +1,161 @@
+# Static model configuration for model_type: number_plate.
+# jobs.yaml carries only *which* job/stream/model runs -- permanent
+# model behaviour (classes, thresholds, resolution, OCR/tracking
+# tuning) belongs here, same convention as person.yaml/fire.yaml.
+
+model_type: number_plate
+
+# Published in every Detection's "model_name" field sent to the Master
+# (NATS cam.detection) -- see person.yaml's `display_name` comment for
+# why this must be the Master's ENUM/display string, not a filename.
+display_name: Number Plate
+
+classes:
+  - number_plate
+num_classes: 1
+listsize: 65          # num_classes + 64 DFL channels (confirmed from the compiled .nb's tensor dims)
+
+thresholds:
+  # Raised from an initial 0.35 -- live RTSP testing (alpr_rtsp.py) showed
+  # false-positive plate detections at that level.
+  obj_thresh: 0.55
+  nms_thresh: 0.45
+
+# Plate-box shape filter applied by the detector (pt and nb), ported
+# from the reference alpr_rtsp.py's plate_bbox_valid() -- discards
+# boxes too small to ever OCR successfully, or shaped nothing like a
+# plate (rejects square-ish false positives: signs, faces, etc.),
+# before they reach tracking/OCR at all.
+filters:
+  min_plate_width_px: 45
+  min_plate_height_px: 15
+  min_plate_aspect: 2.0        # width / height
+  max_plate_aspect: 8.0
+  min_plate_area_ratio: 0.00005   # plate box area / full-frame area -- rejects tiny noise detections
+
+input:
+  # 640 is confirmed twice: the .pt checkpoint's train_args (imgsz=640,
+  # strides [8,16,32]) AND the compiled number_plate.nb itself -- its
+  # tensor tables contain [80,80,65], [40,40,65], [20,20,65] (= 640 /
+  # strides 8,16,32) and a 640 input; no other size matches all three
+  # grids. A wrong-size buffer against a fixed-size NPU graph silently
+  # overruns and segfaults (see person.yaml/fire.yaml), so if the model
+  # is ever recompiled at another size change default_size here.
+  default_size: 640
+  large_size: 1024
+  large_size_keyword: "1024"   # model_name containing this token uses large_size
+  pad_value: 114
+
+pt:
+  # Resolved flat against processes/worker/models/number_plate/ (same
+  # convention as person.pt/fire.pt).
+  model_file: number_plate.pt
+  device: auto          # auto | cpu | cuda:0
+  half: false
+
+nb:
+  # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
+  # level/device_id/board match this project's physically-confirmed
+  # board (hostname `electron`, ASNN SDK) -- same values as fire.yaml /
+  # person.yaml; re-verify if ever deployed to a different board.
+  model_file: number_plate.nb
+  library_file: number_plate.so   # .nb companion library, resolved against the same folder
+  level: 0
+  device_id: 0
+  board: Electron
+
+  # NB/SO-path-only detection tuning (npu_decoder.py -- the .so path
+  # shares this block). Values are the board-verified alpr_npu.py's:
+  # cells need sigmoid(class) >= candidate_gather_thresh, then a
+  # DFL-certainty >= dfl_certainty_thresh; NMS then keeps boxes with
+  # score >= obj_thresh at IoU nms_thresh. The plate-shape filter is the
+  # shared `filters:` block above (pixels of the frame the worker gets).
+  #
+  # Confirmed by that script (not assumed): input 640, outputs
+  # 80x80/40x40/20x20 with 65 channels per cell, class logit FIRST
+  # (channel 0) then 4x16 DFL, RGB input plus reorder '2 1 0'.
+  # Cap on NPU inferences per second per job (alpr_npu.py's NPU_FPS = 12);
+  # 0 disables the cap.
+  target_fps: 12
+  obj_thresh: 0.45
+  nms_thresh: 0.30
+  candidate_gather_thresh: 0.18
+  dfl_certainty_thresh: 0.18
+
+so:
+  # Native .so inference library options (see runtimes/npu/so_runtime.py).
+  # Same "ABI not wired up yet" gap as every other model's .so path
+  # today (SoRuntime._init()/infer() raise NotImplementedError). The
+  # decode settings are read from the nb: block above.
+  device_id: 0
+
+# OCR (plate text read) settings -- ported from the reference ALPR
+# script's PaddleOCR pipeline (rtsp_30fps_realtime-adjacent reference
+# alpr_video.py: perspective-correct + CLAHE-enhance the plate crop,
+# then PP-OCRv5_mobile_rec). Runs per matched plate track, not on
+# every raw detection every frame.
+ocr:
+  enabled: true
+  model_name: PP-OCRv5_mobile_rec
+  interval_frames: 5        # run OCR at most every Nth frame per track
+  min_score: 0.70            # OCR results below this score are rejected outright
+  rectified_width_px: 320
+  rectified_height_px: 80
+  # Frames of accepted-read history kept per track for the
+  # score-weighted per-character consensus vote (plate_tracker.py's
+  # _consensus()) -- NOT a most-frequent-exact-text vote; live testing
+  # showed consecutive reads of the same real plate rarely repeat the
+  # identical full string (character confusions like G/6, R/2, 8/0
+  # differ every frame, usually at a different position each time), so
+  # per-character voting is what actually recovers the correct plate
+  # from noisy reads (see plate_tracker.py's module docstring for its
+  # real limitation: it can't out-vote an error the OCR model makes
+  # consistently at the same position across most reads).
+  max_vote_history: 30
+  # plate_number/plate_confidence stay null until at least this many
+  # accepted reads have gone into the consensus vote above. Left at 1:
+  # live testing showed a real, legible plate often gets exactly one
+  # score+format-valid read across its whole time in frame (OCR noise
+  # fails the format check on most attempts) -- score+format validation
+  # already does the heavy lifting against garbage, so requiring a
+  # second valid read on top routinely made correct reads
+  # un-publishable. Raise to 2+ only if false positives (wrong-but-
+  # valid-format reads) turn out to be a problem in practice.
+  min_confirmations: 1
+  # Reject OCR text that isn't a valid Indian registration plate format
+  # (plate_format.py) before it's even added to a track's vote history --
+  # ported from alpr_rtsp.py's is_valid_indian_plate(). Set false for a
+  # deployment where plates aren't Indian-format.
+  validate_indian_plate: true
+
+# Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
+# ported from the board-verified alpr_npu.py (npu_plate_enricher.py).
+# The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
+npu_ocr:
+  enabled: true
+  model_name: PP-OCRv5_mobile_rec
+  # onnxruntime avoids needing paddlepaddle on the board (no aarch64
+  # wheel); needs `pip install onnxruntime`. Set to "" for Paddle's own
+  # engine. If OCR fails to initialise the job still runs detection-only.
+  engine: onnxruntime
+  min_ocr_conf: 0.45           # raw OCR reads below this are ignored
+  track_iou_threshold: 0.20    # detection<->track match (IoU)
+  track_max_missed: 18         # frames a track survives without a detection
+  max_history: 25              # OCR reads kept per track
+  # A plate is "stable" once it has this many valid-Indian-format reads
+  # AND total evidence >= min_stable_score (evidence = OCR conf x
+  # detection conf x 1.65 valid / 0.30 invalid, boosted for repeats).
+  min_valid_observations: 3
+  min_stable_score: 1.8
+  # true  -> plate_number is null until the plate is "stable" (reference
+  #          behaviour, its "STABLE PLATE" line).
+  # false -> publish the current best text as soon as it is a valid
+  #          Indian-format plate (earlier, but may still change).
+  publish_only_stable: true
+
+# Cross-frame plate tracking (nearest-center greedy match) so OCR
+# accumulates votes for the same physical plate instead of restarting
+# every frame -- ported from the reference's PlateTrack/update_tracks.
+tracking:
+  max_match_distance_px: 90
+  max_missed_frames: 15   # lowered from 20 (alpr_rtsp.py)
