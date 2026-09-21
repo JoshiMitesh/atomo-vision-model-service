@@ -1,8 +1,44 @@
 jobs:
-- job_id: job_plate_test_001
-  camera_id: 38908c03-15e3-4ce6-ad15-ee9d159affde
-  camera_stream: rtsp://192.168.1.17:8554/cam06
-  zone_id: ddf5c5c9-c63d-51fb-96b2-e5b9732be179
+- job_id: job_001
+  camera_id: camera1
+  camera_stream: rtsp://192.168.1.38:8554/camera1
+  zone_id: null
+  model_assignments:
+  - model_type: person
+    model_name: person.nb
+    camera_model_assign_id: cb55e556-5bb3-46d5-8ce4-e8aab3e01fee
+
+- job_id: job_002
+  camera_id: camera2
+  camera_stream: rtsp://192.168.1.38:8554/camera2
+  zone_id: null
+  model_assignments:
+  - model_type: person
+    model_name: person.nb
+    camera_model_assign_id: cb55e556-5bb3-46d5-8ce4-e8aab3e01fee
+
+- job_id: job_003
+  camera_id: camera3
+  camera_stream: rtsp://192.168.1.38:8554/camera3
+  zone_id: null
+  model_assignments:
+  - model_type: person
+    model_name: person.nb
+    camera_model_assign_id: cb55e556-5bb3-46d5-8ce4-e8aab3e01fee
+
+- job_id: job_004
+  camera_id: camera4
+  camera_stream: rtsp://192.168.1.38:8554/camera4
+  zone_id: null
+  model_assignments:
+  - model_type: person
+    model_name: person.nb
+    camera_model_assign_id: cb55e556-5bb3-46d5-8ce4-e8aab3e01fee
+
+- job_id: job_005
+  camera_id: camera5
+  camera_stream: rtsp://192.168.1.38:8554/camera5
+  zone_id: null
   model_assignments:
   - model_type: number_plate
     model_name: number_plate.pt

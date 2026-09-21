@@ -12,6 +12,7 @@ on the scheduler thread, at that job's turn.
 from __future__ import annotations
 
 import os
+import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -22,6 +23,7 @@ from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
+from slave.processes.stream.stream_connector import build_stream_url
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.person.nb import npu_round_robin_scheduler as scheduler_registry
@@ -51,13 +53,22 @@ class PersonNbWorker:
         self._identity = identity
         self._face_controller = face_controller
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._low_cpu_mode = bool(model_config.get("nb", {}).get("low_cpu_mode", True))
+        self._publish_every_n_frames = max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 5)))
+        self._minio_upload_interval = max(0.0, float(model_config.get("nb", {}).get("minio_upload_interval_seconds", 4.0)))
+        self._last_minio_upload = 0.0
+        self._frame_counter = 0
 
         library_file = model_config.get("nb", {}).get("library_file", "")
         self._model_path = os.path.join(models_dir, assignment.model_name)
         self._library_path = os.path.join(models_dir, library_file) if library_file else None
 
-        url = job.camera_stream
-        self._frame_reader = FrameReader(worker_key, url)
+        url = build_stream_url(identity.stream_host, job.camera_id)
+        self._frame_reader = FrameReader(
+            job.job_id,
+            url,
+            decode_every_n_frames=max(1, int(model_config.get("nb", {}).get("decode_every_n_frames", 3))),
+        )
 
         self._scheduler = scheduler_registry.get_shared_scheduler(
             self._model_path, self._library_path, model_config, assignment.model_name
@@ -85,31 +96,33 @@ class PersonNbWorker:
             self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame: Frame, person_detections: list) -> None:
+        self._frame_counter += 1
+        if self._frame_counter % self._publish_every_n_frames != 0:
+            return
+
         face_detections = self._face_controller.update(frame.image, person_detections)
         detections = person_detections + face_detections
 
-        # Upload happens before publishing so the frame's object_key/url
-        # can be embedded directly into the DetectionResult — one merged
-        # NATS message per frame instead of a separate detection message
-        # plus a separate upload-started message.
+        # Keep the low-CPU cadence, but still upload sampled annotated
+        # frames when this publish window is active. This avoids burning
+        # CPU on every frame while still making detection images visible in
+        # MinIO when a published frame actually contains detections.
         object_key = url = None
+        width = height = None
         annotated = None
-        if detections:
+        upload_due = time.monotonic() - self._last_minio_upload >= self._minio_upload_interval
+        if detections and upload_due:
             annotated = draw_detections(frame.image, detections)
-            upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
+            upload_info = self._frame_uploader.upload_frame(self._job.job_id, frame.frame_id, annotated)
             if upload_info is not None:
                 object_key, url = upload_info
-
-        # width/height mirror object_key/url — only meaningful (and
-        # only sent) once there's actually an uploaded image they
-        # describe; null together with object_key/url when MinIO is
-        # disabled or nothing was detected this frame.
-        width = height = None
+            self._last_minio_upload = time.monotonic()
         if object_key is not None:
             height, width = (int(v) for v in frame.image.shape[:2])
 
         # tracking_id is the frame's saved MinIO image id, not a real
-        # per-object tracker — null whenever nothing was uploaded.
+        # per-object tracker. In low-CPU mode we still keep it null unless
+        # the upload succeeded for this sampled frame.
         telemetry = group_detections(detections, self._job, tracking_id=object_key)
 
         result = DetectionResult(
@@ -129,9 +142,9 @@ class PersonNbWorker:
         )
         self._detection_publisher.publish_detection(result)
 
-        # Video only records while a person is actually in frame, with
-        # the same boxes already drawn above for the upload.
-        if person_detections:
+        # Video recording is intentionally disabled in low-CPU mode because
+        # the reference script does not spend its hot loop doing this work.
+        if not self._low_cpu_mode and person_detections:
             self._video_manager.feed_frame(annotated)
 
     def _cleanup(self) -> None:
