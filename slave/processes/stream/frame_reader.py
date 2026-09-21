@@ -66,15 +66,32 @@ class FrameReader:
 
     def _run(self) -> None:
         if not self._client.connect():
-            self._log.warning("initial RTSP connect failed, will retry")
+            error = self._client.get_last_error()
+            if error:
+                self._log.warning("initial RTSP connect failed, will retry: %s", error)
+            else:
+                self._log.warning("initial RTSP connect failed, will retry")
             self._set_status("offline")
 
         while not self._stop_event.is_set():
             ok, image = self._client.read()
-            if not ok or image is None:
-                self._log.warning("RTSP read failed, reconnecting")
+            if not ok:
+                error = self._client.get_last_error()
+                if error:
+                    self._log.warning("RTSP read failed, reconnecting: %s", error)
+                else:
+                    self._log.warning("RTSP read failed, reconnecting")
                 self._set_status("reconnecting")
                 self._reconnect_with_backoff()
+                continue
+
+            if image is None:
+                # decode_every_n_frames (when >1) intentionally skips
+                # most frames to reduce CPU work; this is not an RTSP
+                # failure. Sleep briefly so the reader thread does not
+                # spin in a tight loop while waiting for the next
+                # decodable frame.
+                time.sleep(0.01)
                 continue
 
             self._set_status("online")

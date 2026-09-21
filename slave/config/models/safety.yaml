@@ -1,0 +1,76 @@
+# Static model configuration for model_type: safety.
+# jobs.yaml carries only *which* job/stream/model runs — permanent
+# model behaviour (classes, thresholds, resolution) belongs here.
+#
+# Standalone model (own jobs.yaml entries with model_type: "safety"),
+# same shape as config/models/face.yaml's standalone path — not
+# person-chained/triggered. It CAN itself trigger Face the same way
+# Person does — see the shared config/models/face.yaml `trigger:`
+# block (worker_factory.py attaches a face_controller to Safety jobs
+# too, triggered by this model's own "person" class).
+
+model_type: safety
+
+# Published in every Detection's "model_name" field sent to the Master
+# (NATS cam.detection) — deliberately NOT the job's model filename. See
+# config/models/person.yaml's `display_name` comment: the Master's
+# Redis alert-rule lookup is an exact string match against the ENUM
+# the rule was authored with, not a filename. Verify this matches
+# whatever the Master's model ENUM/dashboard actually calls this model
+# before relying on alerts firing.
+display_name: Safety
+
+# Order matches the trained model's class indices exactly (confirmed
+# via the .pt checkpoint's `names` dict) — do not reorder.
+classes:
+  - boots
+  - gloves
+  - hardhat
+  - no_boots
+  - no_gloves
+  - no_hardhat
+  - no_vest
+  - person
+  - vest
+num_classes: 9
+listsize: 73          # num_classes(9) + 64 DFL channels (reg_max=16) — confirmed via
+                       # the .pt checkpoint's Detect head (reg_max=16, no=73)
+
+thresholds:
+  obj_thresh: 0.25
+  nms_thresh: 0.45
+
+input:
+  # Confirmed from the .pt checkpoint's train_args: imgsz=640, strides
+  # 8/16/32 (i.e. a native 640x640 export, not 1024). UNLIKE
+  # person.yaml, this has NOT yet been confirmed against the compiled
+  # safety.nb's actual output grid sizes on the A311D board — that
+  # graph's input resolution is baked in at compile time regardless of
+  # what this file says (see person.yaml's input: comment for the
+  # exact failure mode: a wrong-size buffer silently overruns and
+  # segfaults). Verify safety.nb's real output grids on-device before
+  # relying on this default_size for the .nb/.so paths.
+  default_size: 640
+  large_size: 1024
+  large_size_keyword: "1024"   # model_name containing this token uses large_size
+  pad_value: 114
+
+pt:
+  device: auto          # auto | cpu | cuda:0
+  half: false
+
+nb:
+  # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
+  # level/device_id/board must match whatever this board's SDK
+  # actually expects — see person.yaml's nb: comment for how those
+  # were confirmed for this project's reference board.
+  level: 0
+  device_id: 0
+  board: Electron
+  # Filename only, resolved against processes/worker/models/safety/
+  # (same directory as the .nb model file itself).
+  library_file: safety.so
+
+so:
+  # Native .so inference library options (see runtimes/npu/so_runtime.py).
+  device_id: 0
