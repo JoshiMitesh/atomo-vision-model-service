@@ -14,9 +14,10 @@ frame via face_controller.py, same as before), otherwise the job's
 only assignment (e.g. a standalone Face job) is primary.
 
 master_ip/stream_port/stream_name are also gone — the Slave is already
-NATS-connected to Master, and the stream is resolved from camera_id
-alone (see processes/stream/stream_connector.py — still a stub there
-pending Master-side confirmation).
+NATS-connected to Master. Master sends the connectable RTSP URL
+directly as `camera_stream` (any host/port/path); `camera_id` is an
+identity/label only, carried through to detections/telemetry/MinIO
+paths, and plays no part in connecting to the stream.
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ class ModelAssignment:
 class JobConfig:
     job_id: str
     camera_id: str
+    camera_stream: str
     zone_id: str
     model_assignments: Tuple[ModelAssignment, ...]
 
@@ -102,6 +104,7 @@ class JobConfig:
         return {
             "job_id": self.job_id,
             "camera_id": self.camera_id,
+            "camera_stream": self.camera_stream,
             "zone_id": self.zone_id,
             "model_assignments": [a.to_dict() for a in self.model_assignments],
         }
@@ -112,6 +115,7 @@ class JobConfig:
         return JobConfig(
             job_id=str(raw["job_id"]),
             camera_id=str(raw["camera_id"]),
+            camera_stream=str(raw["camera_stream"]),
             zone_id=str(raw["zone_id"]),
             model_assignments=tuple(ModelAssignment.from_dict(a) for a in assignments_raw),
         )

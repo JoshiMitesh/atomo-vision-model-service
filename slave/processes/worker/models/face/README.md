@@ -27,3 +27,19 @@ Person job runs Face via `.nb` too.
 For `.nb` jobs, the companion `.so` library filename is configured in
 `config/models/face.yaml` under `nb.library_file` (default `face.so`)
 and is also resolved against this same folder.
+
+## Face embeddings (SFace)
+
+Every face detection also carries a 128-d SFace `embedding` (config:
+`config/models/face.yaml` → `embedding:`), added by
+`embedding/embedding_detector.py` around whichever detector
+(pt/nb/so) is in use. Two extra ONNX files live flat in this folder:
+
+```
+face_recognition_sface_2021dec_int8.onnx   ← SFace embedding model
+face_detection_yunet_2023mar_int8.onnx     ← YuNet, run on each face crop only for the 5 landmarks SFace alignment needs
+```
+
+Both run on CPU via OpenCV (`cv2.FaceRecognizerSF` / `cv2.FaceDetectorYN`,
+OpenCV >= 4.5.4). A face with no landmarks, too small, or below
+`min_det_conf` gets `embedding: null`. The Master does the matching.
