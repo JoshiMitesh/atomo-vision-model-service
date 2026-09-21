@@ -1,0 +1,115 @@
+# Static model configuration for model_type: fire.
+# jobs.yaml carries only *which* job/stream/model runs — permanent
+# model behaviour (classes, thresholds, resolution) belongs here.
+#
+# Standalone model (own jobs.yaml entries with model_type: "fire"),
+# same shape as config/models/safety.yaml's standalone path — not
+# person-chained/triggered, and does NOT get a face_controller
+# attached (worker_factory.py only attaches one to "person"/"safety").
+
+model_type: fire
+
+# Published in every Detection's "model_name" field sent to the Master
+# (NATS cam.detection) — deliberately NOT the job's model filename. See
+# config/models/person.yaml's `display_name` comment: the Master's
+# Redis alert-rule lookup is an exact string match against the ENUM
+# the rule was authored with, not a filename. Verify this matches
+# whatever the Master's model ENUM/dashboard actually calls this model
+# before relying on alerts firing.
+display_name: Fire
+
+# Order matches the trained model's class indices exactly (confirmed
+# via fire.pt's checkpoint `names` dict: {0: 'fire', 1: 'other', 2:
+# 'smoke'}) — do not reorder. This checkpoint is the stage-2 fine-tune
+# (2026-08-12, trained from stage-1's weights on a second dataset) —
+# NOT the 2-class stage-1 checkpoint (smoke/fire only) that used to
+# also be dropped in this folder as stage1_best.pt; that one predates
+# "other" and does not match fire.nb/fire.so (both compiled from this
+# same 3-class stage-2 model — see fire.nb's original filename
+# stage2_best_3class_1024_fp16.nb).
+classes:
+  - fire
+  - other
+  - smoke
+num_classes: 3
+listsize: 67          # num_classes(3) + 64 DFL channels (reg_max=16) — confirmed via
+                       # fire.pt's Detect head (reg_max=16, no=67)
+
+# "other" is a hard-negative/distractor class added in the stage-2
+# fine-tune (things that look like fire/smoke but aren't — the
+# training data is literally called "second_dataset", trained right
+# after stage-1) — inferred from the two-checkpoint lineage, not
+# confirmed with whoever trained the model. It exists so the model can
+# explicitly reject false positives, not to be alerted on. Detections
+# classified as any class listed here are decoded (so NMS/geometry
+# still sees the full 3-class output) but dropped before being
+# returned to the worker — never published, uploaded, or recorded.
+# If "other" turns out to mean something alertable, remove it here.
+ignore_classes:
+  - other
+
+thresholds:
+  # Ported from the confirmed-working fire/smoke NPU reference script's
+  # own defaults (--threshold / --nms-threshold), not the generic
+  # CLAUDE.md §13 placeholder — this is model-specific, not a reused
+  # default from a different checkpoint.
+  obj_thresh: 0.15
+  nms_thresh: 0.45
+
+input:
+  # Confirmed from both fire.pt checkpoints' train_args: imgsz=1024.
+  # fire.nb was compiled from the same stage-2 3-class model at 1024
+  # (original filename: stage2_best_3class_1024_fp16.nb) — but unlike
+  # that original filename, the in-repo model_name is just "fire.nb"
+  # (matching this project's one-file-per-extension convention, see
+  # processes/worker/models/fire/README.md), so it contains no "1024"
+  # token for the large_size_keyword heuristic below to match. Exactly
+  # the same gap documented in config/models/person.yaml's input:
+  # comment — default_size is therefore set to 1024 directly rather
+  # than relying on the keyword match. A wrong-size buffer against a
+  # NPU graph compiled fixed at 1024 will silently overrun and
+  # segfault, same failure mode as person.yaml describes.
+  default_size: 1024
+  large_size: 1024
+  large_size_keyword: "1024"   # kept for consistency; irrelevant while default_size is already 1024
+  pad_value: 114
+
+pt:
+  device: auto          # auto | cpu | cuda:0
+  half: false
+
+nb:
+  # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
+  # level/device_id/board match this project's physically-confirmed
+  # board (hostname `electron`, ASNN SDK) — see person.yaml's nb:
+  # comment for how those were confirmed. Re-verify if ever deployed
+  # to a different board.
+  level: 0
+  device_id: 0
+  board: Electron
+  # Filename only, resolved against processes/worker/models/fire/
+  # (same directory as the .nb model file itself).
+  library_file: fire.so
+
+  # NB/SO-path-only detection tuning (fire_nb_detector.py /
+  # fire_so_detector.py — the .so path shares this same block, see its
+  # own comment). Ported from the reference pipeline's process(): a
+  # single confidence gate on the per-cell max-class score
+  # (obj_thresh, overriding thresholds: above for this path only), a
+  # DFL-distribution certainty filter, a tiny-box size filter, and a
+  # wide aspect-ratio filter (fire/smoke shapes are far less regular
+  # than a person's silhouette).
+  obj_thresh: 0.15
+  nms_thresh: 0.45
+  dfl_certainty_thresh: 0.05    # mean peak DFL-group probability — discards fuzzy/noise boxes
+  min_aspect_ratio: 0.10         # w/h lower bound — fire/smoke can be much wider than tall
+  max_aspect_ratio: 6.0          # w/h upper bound — or much taller than wide (rising smoke columns)
+  min_box_size_ratio: 0.10       # box w/h must be >= this fraction of the grid stride
+  max_detections: 100            # cap on surviving boxes post-NMS, strongest first (CPU bound)
+
+so:
+  # Native .so inference library options (see runtimes/npu/so_runtime.py).
+  # Same "ABI not wired up yet" gap as Person/Face/Safety's .so paths
+  # today (SoRuntime._init()/infer() raise NotImplementedError) — not
+  # a new gap introduced for Fire.
+  device_id: 0

@@ -1,0 +1,77 @@
+# Slave Node runtime configuration.
+# Model-specific settings live in config/models/*.yaml, NOT here.
+
+# Device identity/registration record — flat, top-level, matching the
+# shape of the auto-generated registration entry this stands in for
+# until that flow exists (device_id/mac_id/serial_no/status/
+# approval_status are normally auto-generated; entered manually here
+# for now). Set uniquely per physical device before deploying.
+device_id: 32bf38de-4145-4cab-839b-65d5156c22cc
+device_name: savan-patel-victus
+password: '190325'
+device_role: slave
+ip: 192.168.1.17
+dns_name: atomo-master.local
+mac_id: '24:fb:e3:c2:a0:1a'
+serial_no: SN-0001
+status: Active
+approval_status: approved
+
+nats:
+  host: 192.168.1.21
+  port: 4222
+  use_websocket: false
+  reconnect_wait_seconds: 2
+  user: electron
+  password: 'atomo123'
+  # Optional auth — leave both null for an unauthenticated NATS server
+  # (matches current behavior). Set per-device before deploying.
+  # Single source of truth for every subject this account uses —
+  # config.py's load_slave_config() picks job/stop/detection/upload/
+  # health/cmd/register subjects out of these two lists instead of
+  # declaring them separately, so a subject actually has to be granted
+  # here to be usable. Every "*" below is resolved to this file's own
+  # top-level device_name (savan-patel-victus, above) at load time —
+  # deliberately NOT spelled out literally here, so changing device_name
+  # once at the top automatically carries through to every permission
+  # without editing this list. job/stop/detection subjects are per-device
+  # (<device_name>.jobs.assign/.unassign, devices.<device_name>.detections)
+  # instead of the old flat slave.jobs.start/slave.jobs.stop/cam.detection.
+  permissions:
+    publish:
+      - devices.*.register
+      - devices.*.health
+      - devices.*.detections
+    subscribe:
+      - _INBOX.>
+      - "*.jobs.assign"
+      - "*.jobs.unassign"
+      - devices.*.cmd
+
+# Device timing for the health/telemetry/command channel
+# (processes/device/) — identity lives at the top of this file now.
+device:
+  heartbeat_interval_seconds: 5
+
+jobs:
+  path: config/jobs.yaml
+  poll_interval_seconds: 5
+
+minio:
+  endpoint: 192.168.1.17:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  bucket: fire-detections
+  secure: false
+  enabled: false # skip MinIO frame/video uploads for now — set back to true when needed
+
+video:
+  segment_seconds: 30
+  temp_dir: storage/tmp/video
+  fps: 10
+
+logging:
+  dir: logging_output
+  max_bytes: 10485760   # 10 MB
+  backup_count: 5
+  level: INFO

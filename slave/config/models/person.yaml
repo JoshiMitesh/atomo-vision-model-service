@@ -1,0 +1,88 @@
+# Static model configuration for model_type: person.
+# jobs.yaml carries only *which* job/stream/model runs — permanent
+# model behaviour (classes, thresholds, resolution) belongs here.
+
+model_type: person
+
+# Published in every Detection's "model_name" field sent to the Master
+# (NATS cam.detection) — deliberately NOT the job's model filename
+# (e.g. "person_yolo26n.pt", "person.nb"). The Master's Redis alert-rule
+# engine does an exact-string Redis key match (alert_rule:<camera>:<model>:*)
+# against the model name the rule was authored with in the backend, which
+# is the ENUM value "Person" — not a filename. Sending the filename here
+# means the Redis key lookup never matches and alerts silently never fire,
+# even though detections still land in Postgres (that insert path fuzzy-
+# matches model names, Redis does not). Keep this in sync with whatever
+# the Master's model ENUM/dashboard actually calls this model.
+display_name: Person
+
+classes:
+  - person
+num_classes: 1
+listsize: 65          # num_classes + 64 DFL channels
+
+thresholds:
+  obj_thresh: 0.28
+  nms_thresh: 0.25
+
+input:
+  # default_size was 640 but the actual person.nb on the A311D board is
+  # compiled fixed at 1024x1024 (confirmed: its output grids are
+  # 128x128/64x64/32x32 — matches strides 8/16/32 @ 1024, not @ 640 —
+  # regardless of what size buffer it's fed, since the NPU graph's input
+  # resolution is baked in at compile time and the driver doesn't
+  # validate it, so a 640x640 buffer silently overruns and segfaults).
+  # The `large_size_keyword` filename heuristic below doesn't catch this
+  # because the file is just named person.nb. If a genuinely
+  # 640-native .nb model is ever added, give IT a "1024"-free name and
+  # this model a name containing "1024" instead of relying on this
+  # default.
+  default_size: 1024
+  large_size: 1024
+  large_size_keyword: "1024"   # model_name containing this token uses large_size
+  pad_value: 114
+
+pt:
+  device: auto         # auto | cpu | cuda:0
+  half: false
+
+nb:
+  # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
+  # These are NOT blindly copied from the reference — confirmed against
+  # the actual SDK installed on this board (hostname `electron`): ASNN,
+  # not KSNN (KSNN targets Khadas VIM3 and isn't installed here). `board`
+  # is the identifier ASNN's constructor expects (asnn.api.asnn(board)) —
+  # "Electron" matches this board's own reference scripts (~/p2.py).
+  # Re-verify both if this config is ever deployed to a different board.
+  level: 0
+  device_id: 0
+  board: Electron
+  # Filename only, resolved against processes/worker/models/person/
+  # (same directory as the .nb model file itself).
+  library_file: person.so
+  process_interval: 0.100   # seconds to rest between inferences (lower CPU, same as reference script)
+  target_fps: 12            # caps each job's detection rate independently (10-15 range) — see
+                             # npu_round_robin_scheduler.py; the camera still delivers its native
+                             # FPS, this just skips running letterbox/NPU/decode on every frame
+
+  # NB-path-only detection tuning (person_nb_detector.py). Overrides
+  # the shared thresholds: block above for this path only — .pt/.so
+  # are untouched. Ported from the updated reference pipeline: a
+  # two-stage confidence gate (gather -> DFL-certainty), a person
+  # aspect-ratio geometry filter, a small-box area filter, and a
+  # head-texture false-positive filter, then OpenCV NMS.
+  obj_thresh: 0.28             # final NMS score threshold
+  nms_thresh: 0.25             # separates side-by-side people without merging
+  candidate_gather_thresh: 0.18   # low bar to gather DFL candidates before certainty filtering
+  dfl_certainty_thresh: 0.18      # discards fuzzy/background-noise boxes
+  min_aspect_ratio: 0.80           # h/w — discards horizontal (table/sofa/floor) clutter
+  min_small_box_area: 2500.0       # px^2 — small+low-confidence boxes (bags, etc.) discarded
+  small_box_score_thresh: 0.43     # confidence below this on a small box gets it dropped
+  high_conf_bypass: 0.55           # detections at/above this skip the head-texture check
+  head_texture_std_thresh: 7.0     # grayscale STD below this on the head crop = uniform/false positive
+  head_texture_score_thresh: 0.52  # only discard low-STD heads below this confidence too
+  MIN_BOX_HEIGHT_PX: 30            
+
+so:
+  # Native .so inference library options (see runtimes/npu/so_runtime.py).
+  device_id: 0
