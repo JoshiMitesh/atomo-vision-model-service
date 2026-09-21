@@ -27,6 +27,7 @@ _CLASS_META: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "face": ("face_recognized", ("name", "authorized", "known")),
     "fire": ("fire_detected", ("density",)),
     "smoke": ("smoke_detected", ()),
+    "number_plate": ("number_plate_detected", ("plate_number", "plate_confidence")),
 }
 _DEFAULT_EVENT_TYPE = "{class_name}_detected"
 
@@ -38,9 +39,15 @@ class Detection:
     confidence: float
     bbox: Tuple[float, float, float, float]  # x1, y1, x2, y2 in original frame pixels
     model_name: str  # filename of the model that produced this detection
+    # Per-detection values for this class_name's _CLASS_META extra
+    # fields (e.g. number_plate's plate_number/plate_confidence) that
+    # the detector/worker actually computed, keyed by field name.
+    # Empty for every detector that has no such value yet -- those
+    # fields stay null via group_detections()'s default fill below.
+    extra: Dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "class_id": int(self.class_id),
             "class_name": self.class_name,
             "event": f"{self.class_name}_detected",
@@ -48,6 +55,8 @@ class Detection:
             "bbox": [float(v) for v in self.bbox],
             "model_name": self.model_name,
         }
+        result.update(self.extra)
+        return result
 
 
 @dataclass(frozen=True)
@@ -125,7 +134,7 @@ def group_detections(
             DetectionInstance(
                 confidence=d.confidence,
                 bbox=d.bbox,
-                extra={field_name: None for field_name in extra_fields},
+                extra={**{field_name: None for field_name in extra_fields}, **d.extra},
             )
             for d in class_dets
         )

@@ -23,7 +23,7 @@ nats:
   use_websocket: false
   reconnect_wait_seconds: 2
   user: electron
-  password: 'atomo123'
+  password: '190325'
   # Optional auth — leave both null for an unauthenticated NATS server
   # (matches current behavior). Set per-device before deploying.
   # Single source of truth for every subject this account uses —
@@ -63,7 +63,7 @@ minio:
   secret_key: minioadmin
   bucket: fire-detections
   secure: false
-  enabled: false # skip MinIO frame/video uploads for now — set back to true when needed
+  enabled: true # skip MinIO frame/video uploads for now — set back to true when needed
 
 video:
   segment_seconds: 30
