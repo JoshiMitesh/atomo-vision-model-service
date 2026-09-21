@@ -26,6 +26,8 @@ for _env_var in (
     "MKL_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS",
     "NUMEXPR_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+    "OPENCV_FFMPEG_THREADS",
 ):
     os.environ.setdefault(_env_var, "1")
 
@@ -100,6 +102,12 @@ def main() -> None:
         video_temp_dir=config.resolve_path(config.video.temp_dir), # video_temp_dir is the path to the temporary directory where video segments are stored before being uploaded to MinIO, which is used by the WorkerServices to manage the temporary storage of video segments.
         video_segment_seconds=config.video.segment_seconds, # video_segment_seconds is the duration of each video segment in seconds, which is used by the WorkerServices to determine how long each video segment should be before it is uploaded to MinIO.
         video_fps=config.video.fps, # video_fps is the frames per second (FPS) of the video segments, which is used by the WorkerServices to determine the frame rate of the video segments before they are uploaded to MinIO.
+        # RTSP host used to resolve a job's camera_id into a stream URL
+        # (see processes/stream/stream_connector.py — the real
+        # camera_id -> stream resolution mechanism is still a stub
+        # pending confirmation; nats.host is reused here only because
+        # slave.yaml isn't allowed to grow a new section for this yet).
+        stream_host=config.nats.host,
         # source.branch_id / source.device_id on every cam.detection
         # message. branch_id is DeviceConfig's existing (previously
         # unused) site_id default; device_id is the real device UUID
