@@ -71,6 +71,11 @@ class FrameReader:
                 self._log.warning("initial RTSP connect failed, will retry: %s", error)
             else:
                 self._log.warning("initial RTSP connect failed, will retry")
+            error = self._client.get_last_error()
+            if error:
+                self._log.warning("initial RTSP connect failed, will retry: %s", error)
+            else:
+                self._log.warning("initial RTSP connect failed, will retry")
             self._set_status("offline")
 
         while not self._stop_event.is_set():

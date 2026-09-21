@@ -16,6 +16,7 @@ from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
+from slave.processes.stream.stream_connector import build_stream_url
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.face.so.face_so_detector import FaceSoDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
