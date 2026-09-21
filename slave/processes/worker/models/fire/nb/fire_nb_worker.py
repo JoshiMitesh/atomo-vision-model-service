@@ -34,7 +34,7 @@ from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.fire.nb.fire_nb_detector import FireNbDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
-from slave.utils.time_utils import utc_now_iso
+from slave.utils.time_utils import ist_now_iso
 
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
@@ -115,7 +115,7 @@ class FireNbWorker:
         result = DetectionResult(
             job_id=self._job.job_id,
             frame_id=frame.frame_id,
-            occurred_at=utc_now_iso(),
+            occurred_at=ist_now_iso(),
             branch_id=self._identity.branch_id,
             device_id=self._identity.device_id,
             zone_id=self._job.zone_id,

@@ -40,6 +40,6 @@ jobs:
   camera_stream: rtsp://192.168.1.38:8554/camera5
   zone_id: null
   model_assignments:
-  - model_type: person
-    model_name: person.nb
-    camera_model_assign_id: cb55e556-5bb3-46d5-8ce4-e8aab3e01fee
+  - model_type: number_plate
+    model_name: number_plate.pt
+    camera_model_assign_id: c4eca180-5473-4917-b78d-1f2679cdf242
