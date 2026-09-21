@@ -58,7 +58,7 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.17:9000
+  endpoint: 192.168.1.38:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: fire-detections
