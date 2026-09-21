@@ -19,6 +19,25 @@ input:
   large_size_keyword: "1024"   # model_name containing this token uses large_size
   pad_value: 114
 
+embedding:
+  # Per-face SFace embedding attached to every face detection (both the
+  # standalone Face jobs and the Person-triggered Face path). Files are
+  # resolved flat against processes/worker/models/face/.
+  enabled: true
+  model_name: face_recognition         # published as "embedding_model"
+  model_file: face_recognition_sface_2021dec_int8.onnx
+  # YuNet is run on each padded face crop only to recover the 5
+  # landmarks SFace alignment needs (face.nb/.pt/.so output a bbox
+  # only). Required: unaligned bbox crops give embeddings that don't
+  # match aligned ones (cosine ~0.2-0.6), so there is no fallback --
+  # a face with no landmarks gets embedding: null.
+  landmark_model_file: face_detection_yunet_2023mar_int8.onnx
+  min_face_px: 20            # smaller faces get embedding: null
+  min_det_conf: 0.25          # lower-confidence faces get embedding: null
+  max_faces_per_frame: 10    # largest faces embedded first; rest get null
+  l2_normalize: false        # false = raw SFace output (what the reference DB stores)
+  decimals: 6
+
 trigger:
   # Keep face detection off by default. This matches the reference
   # implementation and avoids burning extra NPU/CPU on a second model

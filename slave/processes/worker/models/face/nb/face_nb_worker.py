@@ -28,8 +28,8 @@ from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
-from slave.processes.stream.stream_connector import build_stream_url
 from slave.processes.video.video_manager import VideoManager
+from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
 from slave.processes.worker.models.face.nb.face_nb_detector import FaceNbDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
@@ -61,7 +61,9 @@ class FaceNbWorker:
         library_file = model_config.get("nb", {}).get("library_file", "")
         model_path = os.path.join(models_dir, assignment.model_name)
         library_path = os.path.join(models_dir, library_file) if library_file else None
-        self._detector = FaceNbDetector(model_path, library_path, model_config, assignment.model_name)
+        self._detector = with_embedding(
+            FaceNbDetector(model_path, library_path, model_config, assignment.model_name), model_config, models_dir
+        )
 
         url = job.camera_stream
         self._frame_reader = FrameReader(worker_key, url)
