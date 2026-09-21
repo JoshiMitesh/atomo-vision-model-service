@@ -21,7 +21,7 @@ RECONNECT_BACKOFF_SECONDS = 2.0
 
 
 class FrameReader:
-    def __init__(self, job_id: str, url: str, decode_every_n_frames: int = 8) -> None:
+    def __init__(self, job_id: str, url: str, decode_every_n_frames: int = 3) -> None:
         self._job_id = job_id
         self._client = RtspClient(url, decode_every_n_frames=decode_every_n_frames)
         self._queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
@@ -66,6 +66,11 @@ class FrameReader:
 
     def _run(self) -> None:
         if not self._client.connect():
+            error = self._client.get_last_error()
+            if error:
+                self._log.warning("initial RTSP connect failed, will retry: %s", error)
+            else:
+                self._log.warning("initial RTSP connect failed, will retry")
             error = self._client.get_last_error()
             if error:
                 self._log.warning("initial RTSP connect failed, will retry: %s", error)
