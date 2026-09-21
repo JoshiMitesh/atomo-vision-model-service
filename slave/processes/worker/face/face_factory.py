@@ -24,6 +24,7 @@ import threading
 import yaml
 
 from slave.processes.worker.face.face_controller import FaceController
+from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
 
 _face_config_cache: dict = {}
 _cache_lock = threading.Lock()
@@ -43,7 +44,11 @@ def _build_detector(model_extension: str, models_root: str, face_cfg: dict):
     # convention as person's models/person/README.md), sibling to the
     # pt/nb/so *code* subfolders.
     face_models_dir = os.path.join(models_root, "face")
+    detector = _build_raw_detector(model_extension, face_models_dir, face_cfg)
+    return with_embedding(detector, face_cfg, face_models_dir)
 
+
+def _build_raw_detector(model_extension: str, face_models_dir: str, face_cfg: dict):
     if model_extension == ".pt":
         from slave.processes.worker.models.face.pt.face_pt_detector import FacePtDetector
 

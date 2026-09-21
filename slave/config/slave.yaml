@@ -7,18 +7,18 @@
 # approval_status are normally auto-generated; entered manually here
 # for now). Set uniquely per physical device before deploying.
 device_id: 32bf38de-4145-4cab-839b-65d5156c22cc
-device_name: electron
-password: 'electron'
+device_name: savan-patel-victus
+password: '190325'
 device_role: slave
-ip: 192.168.1.24
-dns_name: atomo-1.local
-mac_id: 'C4:3C:B0:AD:D5:85'
+ip: 192.168.1.17
+dns_name: atomo-master.local
+mac_id: '24:fb:e3:c2:a0:1a'
 serial_no: SN-0001
 status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.38
+  host: 192.168.1.17
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
@@ -58,12 +58,12 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.38:9000
+  endpoint: 192.168.1.17:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: fire-detections
   secure: false
-  enabled: true # skip MinIO frame/video uploads for now — set back to true when needed
+  enabled: false # skip MinIO frame/video uploads for now — set back to true when needed
 
 video:
   segment_seconds: 30

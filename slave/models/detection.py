@@ -24,7 +24,7 @@ from slave.models.job import JobConfig
 # here) when a new model type starts producing detections.
 _CLASS_META: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "person": ("person_count_detected", ("gender",)),
-    "face": ("face_recognized", ("name", "authorized", "known")),
+    "face": ("face_recognized", ("name", "authorized", "known", "embedding", "embedding_model")),
     "fire": ("fire_detected", ("density",)),
     "smoke": ("smoke_detected", ()),
     "number_plate": ("number_plate_detected", ("plate_number", "plate_confidence")),
@@ -106,12 +106,18 @@ def group_detections(
     detections: Sequence[Detection],
     job: JobConfig,
     tracking_id: Optional[str],
+    assign_id: Optional[str] = None,
 ) -> List[ClassDetection]:
     """Group a frame's flat Detection list into one ClassDetection per
     class_name, in the shape cam.detection's `telemetry` array expects.
 
     camera_model_assign_id per group comes from job.model_assignments
-    (Master-supplied, keyed by model_type == class_name). tracking_id
+    (Master-supplied, keyed by model_type == class_name) -- unless
+    `assign_id` is given, in which case every group uses that one id
+    instead. A multi-class model like Safety (boots, no_vest, hardhat,
+    ...) needs this: its class names never equal its model_type
+    ("safety"), so the per-class lookup would return null for all of
+    them. tracking_id
     is the same value for every group in a frame — the frame's saved
     MinIO image id (see detection_result.py), not a real per-object
     tracker.
@@ -140,7 +146,7 @@ def group_detections(
         )
         groups.append(
             ClassDetection(
-                camera_model_assign_id=job.camera_model_assign_id_for(class_name),
+                camera_model_assign_id=assign_id if assign_id is not None else job.camera_model_assign_id_for(class_name),
                 class_id=class_dets[0].class_id,
                 class_name=class_name,
                 event_type=event_type,
