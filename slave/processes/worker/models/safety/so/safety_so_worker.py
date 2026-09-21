@@ -101,7 +101,13 @@ class SafetySoWorker:
         if object_key is not None:
             height, width = (int(v) for v in frame.image.shape[:2])
 
-        telemetry = group_detections(detections, self._job, tracking_id=object_key)
+        # Every safety class (boots, no_vest, hardhat, person, ...) carries the
+        # safety assignment's id; face detections riding along keep the
+        # face assignment's own id.
+        telemetry = group_detections(
+            safety_detections, self._job, tracking_id=object_key,
+            assign_id=self._job.camera_model_assign_id_for("safety"),
+        ) + group_detections(face_detections, self._job, tracking_id=object_key)
 
         result = DetectionResult(
             job_id=self._job.job_id,
