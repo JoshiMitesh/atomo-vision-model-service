@@ -28,7 +28,14 @@ def _read_raw(path: str) -> dict:
             data = yaml.safe_load(fh)
     except FileNotFoundError:
         return {"jobs": []}
-    return data or {"jobs": []}
+
+    if data is None:
+        return {"jobs": []}
+    if isinstance(data, list):
+        return {"jobs": data}
+    if isinstance(data, dict):
+        return data
+    return {"jobs": []}
 
 
 def load_jobs(path: str) -> List[JobConfig]:
