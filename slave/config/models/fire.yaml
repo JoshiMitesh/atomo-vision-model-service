@@ -56,6 +56,17 @@ thresholds:
   obj_thresh: 0.15
   nms_thresh: 0.45
 
+# "severity" (low/medium/high), published on every "fire"-class
+# detection instance in place of a model-derived value -- the model
+# has no severity output, this is purely a post-process classification
+# of how much of the frame the detected fire's bbox covers (bigger box
+# = closer/larger fire = higher severity). See
+# processes/worker/models/fire/severity.py. Ratio = bbox area / frame
+# area. Placeholder defaults -- tune against real footage.
+severity_thresholds:
+  low_max: 0.05      # ratio < low_max -> "low"
+  medium_max: 0.15   # low_max <= ratio < medium_max -> "medium"; >= medium_max -> "high"
+
 input:
   # Confirmed from both fire.pt checkpoints' train_args: imgsz=1024.
   # fire.nb was compiled from the same stage-2 3-class model at 1024

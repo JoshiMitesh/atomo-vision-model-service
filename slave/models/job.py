@@ -17,7 +17,25 @@ master_ip/stream_port/stream_name are also gone — the Slave is already
 NATS-connected to Master. Master sends the connectable RTSP URL
 directly as `camera_stream` (any host/port/path); `camera_id` is an
 identity/label only, carried through to detections/telemetry/MinIO
-paths, and plays no part in connecting to the stream.
+paths, and plays no part in connecting to the stream. `camera_name` is
+a second, human-readable identity field Master sends alongside
+`camera_id` — also carried through untouched, published in every
+DetectionResult's `source.camera`.
+
+Each model_assignments[] entry also carries `model_id` — Master's
+catalog id for that model (distinct from `camera_model_assign_id`,
+which identifies *this camera's assignment* of the model, not the
+model itself). Published in every ClassDetection right after
+camera_model_assign_id — see models/detection.py.
+
+`zone_name` is a second, human-readable identity field Master sends
+alongside `zone_id` — carried through untouched, published in every
+DetectionResult's `source` right after `zone_id`.
+
+`branch_id`/`branch_name` are also Master-supplied, per-job (a device
+can run jobs for more than one branch) — NOT device-level config, so
+they don't live in slave.yaml/DeviceConfig. Published in every
+DetectionResult's `source`, right before `device_id`.
 """
 
 from __future__ import annotations
@@ -34,6 +52,7 @@ class ModelAssignment:
     model_type: str
     model_name: str
     camera_model_assign_id: str
+    model_id: str
 
     @property
     def model_extension(self) -> str:
@@ -44,6 +63,7 @@ class ModelAssignment:
             "model_type": self.model_type,
             "model_name": self.model_name,
             "camera_model_assign_id": self.camera_model_assign_id,
+            "model_id": self.model_id,
         }
 
     @staticmethod
@@ -52,15 +72,20 @@ class ModelAssignment:
             model_type=str(raw["model_type"]),
             model_name=str(raw["model_name"]),
             camera_model_assign_id=str(raw["camera_model_assign_id"]),
+            model_id=str(raw["model_id"]),
         )
 
 
 @dataclass(frozen=True)
 class JobConfig:
     job_id: str
+    branch_id: str
+    branch_name: str
     camera_id: str
+    camera_name: str
     camera_stream: str
     zone_id: str
+    zone_name: str
     model_assignments: Tuple[ModelAssignment, ...]
 
     @property
@@ -100,12 +125,24 @@ class JobConfig:
         assignment = self.assignment_for(model_type)
         return assignment.camera_model_assign_id if assignment else None
 
+    def model_id_for(self, model_type: str) -> Optional[str]:
+        assignment = self.assignment_for(model_type)
+        return assignment.model_id if assignment else None
+
+    def model_name_for(self, model_type: str) -> Optional[str]:
+        assignment = self.assignment_for(model_type)
+        return assignment.model_name if assignment else None
+
     def to_dict(self) -> dict:
         return {
             "job_id": self.job_id,
+            "branch_id": self.branch_id,
+            "branch_name": self.branch_name,
             "camera_id": self.camera_id,
+            "camera_name": self.camera_name,
             "camera_stream": self.camera_stream,
             "zone_id": self.zone_id,
+            "zone_name": self.zone_name,
             "model_assignments": [a.to_dict() for a in self.model_assignments],
         }
 
@@ -114,9 +151,13 @@ class JobConfig:
         assignments_raw = raw.get("model_assignments") or []
         return JobConfig(
             job_id=str(raw["job_id"]),
+            branch_id=str(raw["branch_id"]),
+            branch_name=str(raw["branch_name"]),
             camera_id=str(raw["camera_id"]),
+            camera_name=str(raw["camera_name"]),
             camera_stream=str(raw["camera_stream"]),
             zone_id=str(raw["zone_id"]),
+            zone_name=str(raw["zone_name"]),
             model_assignments=tuple(ModelAssignment.from_dict(a) for a in assignments_raw),
         )
 

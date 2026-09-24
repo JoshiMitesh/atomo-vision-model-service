@@ -122,16 +122,23 @@ class SafetyNbWorker:
         telemetry = group_detections(
             safety_detections, self._job, tracking_id=object_key,
             assign_id=self._job.camera_model_assign_id_for("safety"),
+            model_id=self._job.model_id_for("safety"),
+            model_name=self._job.model_name_for("safety"),
         ) + group_detections(face_detections, self._job, tracking_id=object_key)
 
         result = DetectionResult(
             job_id=self._job.job_id,
             frame_id=frame.frame_id,
             occurred_at=ist_now_iso(),
-            branch_id=self._identity.branch_id,
+            device_name=self._identity.device_name,
+            branch_id=self._job.branch_id,
+            branch_name=self._job.branch_name,
             device_id=self._identity.device_id,
             zone_id=self._job.zone_id,
+            zone_name=self._job.zone_name,
             camera_id=self._job.camera_id,
+            camera_name=self._job.camera_name,
+            camera_stream=self._job.camera_stream,
             camera_status=self._frame_reader.get_status(),
             telemetry=telemetry,
             object_key=object_key,

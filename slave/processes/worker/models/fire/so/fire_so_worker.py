@@ -7,6 +7,7 @@ attaches one to "person" and "safety" model types).
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import threading
 
@@ -19,6 +20,7 @@ from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
+from slave.processes.worker.models.fire.severity import compute_severity
 from slave.processes.worker.models.fire.so.fire_so_detector import FireSoDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
@@ -45,6 +47,7 @@ class FireSoWorker:
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
         self._identity = identity
+        self._model_config = model_config
         self._log = get_logger(__name__, job_id=job.job_id)
 
         library_path = os.path.join(models_dir, assignment.model_name)
@@ -83,6 +86,17 @@ class FireSoWorker:
     def _process_frame(self, frame) -> None:
         fire_detections = self._detector.detect(frame.image)
 
+        if fire_detections:
+            frame_height, frame_width = (int(v) for v in frame.image.shape[:2])
+            fire_detections = [
+                dataclasses.replace(
+                    d, extra={**d.extra, "severity": compute_severity(d.bbox, frame_width, frame_height, self._model_config)}
+                )
+                if d.class_name == "fire"
+                else d
+                for d in fire_detections
+            ]
+
         object_key = url = None
         annotated = None
         if fire_detections:
@@ -101,10 +115,15 @@ class FireSoWorker:
             job_id=self._job.job_id,
             frame_id=frame.frame_id,
             occurred_at=ist_now_iso(),
-            branch_id=self._identity.branch_id,
+            device_name=self._identity.device_name,
+            branch_id=self._job.branch_id,
+            branch_name=self._job.branch_name,
             device_id=self._identity.device_id,
             zone_id=self._job.zone_id,
+            zone_name=self._job.zone_name,
             camera_id=self._job.camera_id,
+            camera_name=self._job.camera_name,
+            camera_stream=self._job.camera_stream,
             camera_status=self._frame_reader.get_status(),
             telemetry=telemetry,
             object_key=object_key,

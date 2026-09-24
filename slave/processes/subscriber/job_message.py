@@ -3,12 +3,16 @@
 Expected shape (Master -> Slave, slave.jobs.start):
     {
       "job_id": "job_001",
+      "branch_id": "branch_01",
+      "branch_name": "Downtown Branch",
       "camera_id": "773c74ea-4767-40db-92de-9574c97991ec",
+      "camera_name": "Main Entrance Cam 1",
       "camera_stream": "rtsp://192.168.1.17:8554/cam_tapo_105",
       "zone_id": "main-entrance",
+      "zone_name": "Main Entrance",
       "model_assignments": [
-        {"model_type": "person", "model_name": "person_yolo26n.pt", "camera_model_assign_id": "032730bb-..."},
-        {"model_type": "face",   "model_name": "face.pt",           "camera_model_assign_id": "77614d82-..."}
+        {"model_type": "person", "model_name": "person_yolo26n.pt", "camera_model_assign_id": "032730bb-...", "model_id": "mdl_person_01"},
+        {"model_type": "face",   "model_name": "face.pt",           "camera_model_assign_id": "77614d82-...", "model_id": "mdl_face_01"}
       ]
     }
 
@@ -17,7 +21,13 @@ each model lives in its own model_assignments[] entry (models/job.py's
 JobConfig.primary_assignment picks which one drives the running
 worker). master_ip/stream_port/stream_name are gone too — the Slave is
 already NATS-connected to Master, and the actual RTSP URL comes
-straight from `camera_stream`. `camera_id` is an identity/label only.
+straight from `camera_stream`. `camera_id`/`camera_name`,
+`zone_id`/`zone_name`, and `branch_id`/`branch_name` are identity/label
+fields only. `branch_id`/`branch_name` are per-job (a device can run
+jobs for more than one branch) — NOT device-level config, unlike
+`device_id`/`device_name` which come from slave.yaml. `model_id` is
+Master's catalog id for the model itself, distinct from
+`camera_model_assign_id` (this camera's assignment of it).
 """
 
 from __future__ import annotations
@@ -26,13 +36,17 @@ from slave.models.job import JobConfig
 
 REQUIRED_FIELDS = (
     "job_id",
+    "branch_id",
+    "branch_name",
     "camera_id",
+    "camera_name",
     "camera_stream",
     "zone_id",
+    "zone_name",
     "model_assignments",
 )
 
-REQUIRED_ASSIGNMENT_FIELDS = ("model_type", "model_name", "camera_model_assign_id")
+REQUIRED_ASSIGNMENT_FIELDS = ("model_type", "model_name", "camera_model_assign_id", "model_id")
 
 
 class InvalidJobMessage(ValueError):
