@@ -10,8 +10,8 @@ num_classes: 1
 listsize: 5
 
 thresholds:
-  obj_thresh: 0.35
-  nms_thresh: 0.45
+  obj_thresh: 0.60
+  nms_thresh: 0.50
 
 input:
   default_size: 640
@@ -33,7 +33,7 @@ embedding:
   # a face with no landmarks gets embedding: null.
   landmark_model_file: face_detection_yunet_2023mar_int8.onnx
   min_face_px: 20            # smaller faces get embedding: null
-  min_det_conf: 0.25          # lower-confidence faces get embedding: null
+  min_det_conf: 0.50          # lower-confidence faces get embedding: null
   max_faces_per_frame: 10    # largest faces embedded first; rest get null
   l2_normalize: false        # false = raw SFace output (what the reference DB stores)
   decimals: 6

@@ -25,11 +25,16 @@ class DetectionResult:
     job_id: str
     frame_id: int
     occurred_at: str
+    device_name: str
 
     branch_id: str
+    branch_name: str
     device_id: str
     zone_id: str
+    zone_name: str
     camera_id: str
+    camera_name: str
+    camera_stream: str
     camera_status: str
 
     telemetry: List[ClassDetection]
@@ -47,10 +52,15 @@ class DetectionResult:
             "occurred_at": self.occurred_at,
             "source": {
                 "branch_id": self.branch_id,
+                "branch_name": self.branch_name,
                 "device_id": self.device_id,
+                "device_name": self.device_name,
                 "zone_id": self.zone_id,
+                "zone_name": self.zone_name,
                 "camera": {
                     "camera_id": self.camera_id,
+                    "camera_name": self.camera_name,
+                    "camera_stream": self.camera_stream,
                     "status": self.camera_status,
                 },
             },

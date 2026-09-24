@@ -25,7 +25,12 @@ from slave.models.job import JobConfig
 _CLASS_META: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "person": ("person_count_detected", ("gender",)),
     "face": ("face_recognized", ("name", "authorized", "known", "embedding", "embedding_model")),
-    "fire": ("fire_detected", ("density",)),
+    # severity ("low"/"medium"/"high") is computed from bbox size relative
+    # to frame area, not a model output — see
+    # processes/worker/models/fire/severity.py. The default-fill below
+    # only supplies null when a caller didn't set it (e.g. no frame
+    # dimensions available yet).
+    "fire": ("fire_detected", ("severity",)),
     "smoke": ("smoke_detected", ()),
     "number_plate": ("number_plate_detected", ("plate_number", "plate_confidence")),
 }
@@ -89,10 +94,14 @@ class ClassDetection:
     event_type: str
     instances: Tuple[DetectionInstance, ...]
     tracking_id: Optional[str] = None
+    model_id: Optional[str] = None
+    model_name: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
             "camera_model_assign_id": self.camera_model_assign_id,
+            "model_id": self.model_id,
+            "model_name": self.model_name,
             "class_id": int(self.class_id),
             "class_name": self.class_name,
             "event_type": self.event_type,
@@ -107,6 +116,8 @@ def group_detections(
     job: JobConfig,
     tracking_id: Optional[str],
     assign_id: Optional[str] = None,
+    model_id: Optional[str] = None,
+    model_name: Optional[str] = None,
 ) -> List[ClassDetection]:
     """Group a frame's flat Detection list into one ClassDetection per
     class_name, in the shape cam.detection's `telemetry` array expects.
@@ -117,7 +128,10 @@ def group_detections(
     instead. A multi-class model like Safety (boots, no_vest, hardhat,
     ...) needs this: its class names never equal its model_type
     ("safety"), so the per-class lookup would return null for all of
-    them. tracking_id
+    them. model_id/model_name work the same way (looked up per
+    class_name via job.model_id_for/job.model_name_for, or overridden
+    with the `model_id`/`model_name` params for a multi-class model).
+    tracking_id
     is the same value for every group in a frame — the frame's saved
     MinIO image id (see detection_result.py), not a real per-object
     tracker.
@@ -152,6 +166,8 @@ def group_detections(
                 event_type=event_type,
                 instances=instances,
                 tracking_id=tracking_id,
+                model_id=model_id if model_id is not None else job.model_id_for(class_name),
+                model_name=model_name if model_name is not None else job.model_name_for(class_name),
             )
         )
     return groups
