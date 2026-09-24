@@ -96,8 +96,11 @@ so:
 # every raw detection every frame.
 ocr:
   enabled: true
-  model_name: PP-OCRv5_mobile_rec
-  interval_frames: 5        # run OCR at most every Nth frame per track
+  # fast-plate-ocr model (plate_ocr.py) -- NOT the PaddleOCR name the NPU
+  # path's npu_ocr: block still uses. Any other value here fails at worker
+  # start with "Unknown model".
+  model_name: cct-s-v2-global-model
+  interval_frames: 5       # run OCR at most every Nth frame per track
   min_score: 0.70            # OCR results below this score are rejected outright
   rectified_width_px: 320
   rectified_height_px: 80
