@@ -49,10 +49,12 @@ class WorkerIdentity:
     """Message-envelope identity shared by every worker (person or
     face) — the parts of cam.detection's `source` object that come
     from this device/config rather than from a per-frame detection.
+    branch_id/branch_name are NOT here — they're per-job, Master-
+    supplied (see JobConfig), not device-level.
     """
 
-    branch_id: str
     device_id: str
+    device_name: str
 
 
 @dataclass(frozen=True)
@@ -67,8 +69,8 @@ class WorkerServices:
     video_temp_dir: str
     video_segment_seconds: int
     video_fps: int
-    branch_id: str
     device_id: str
+    device_name: str
 
 
 def create_worker(
@@ -91,8 +93,8 @@ def create_worker(
     )
 
     identity = WorkerIdentity(
-        branch_id=services.branch_id,
         device_id=services.device_id,
+        device_name=services.device_name,
     )
 
     common_kwargs = dict(

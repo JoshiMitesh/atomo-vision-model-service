@@ -29,3 +29,9 @@ paddlepaddle>=2.6
 # board does not need paddlepaddle. Install on the board: paddleocr
 # (>=3.0) + onnxruntime, not paddlepaddle.
 onnxruntime>=1.17
+
+# Number-Plate `.pt` OCR (plate_ocr.py) reads plates with fast-plate-ocr
+# (model set by config/models/number_plate.yaml `ocr.model_name`, e.g.
+# cct-s-v2-global-model; downloaded on first use). The NPU (.nb/.so)
+# path still uses paddleocr + onnxruntime (npu_ocr: block).
+fast-plate-ocr>=1.1
