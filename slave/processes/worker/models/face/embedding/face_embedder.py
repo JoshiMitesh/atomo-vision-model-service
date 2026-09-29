@@ -120,10 +120,14 @@ class FaceEmbedder:
             return
 
         log.info(
-            "face embedder ready (model=%s, YuNet conf=%.2f, nms=%.2f)",
+            "face embedder ready (model=%s, YuNet conf=%.2f, nms=%.2f, "
+            "pose pitch<=%.1f yaw<=%.1f roll<=%.1f)",
             self._model_name,
             self._landmark_score_thresh,
             self._landmark_nms_thresh,
+            self._max_pitch_deg,
+            self._max_yaw_deg,
+            self._max_roll_deg,
         )
 
     @property
@@ -387,9 +391,9 @@ class FaceEmbedder:
         # The limits are intentionally asymmetric in spirit: pitch is the
         # strictest because downward-looking faces are the main bad template
         # seen in this camera setup.  Yaw/roll also prevent strong profiles.
-        max_pitch = getattr(FaceEmbedder, "_max_pitch_deg", 25.0)
-        max_yaw = getattr(FaceEmbedder, "_max_yaw_deg", 35.0)
-        max_roll = getattr(FaceEmbedder, "_max_roll_deg", 35.0)
+        max_pitch = self._max_pitch_deg
+        max_yaw = self._max_yaw_deg
+        max_roll = self._max_roll_deg
 
         if landmark_face is None or len(landmark_face) < 14:
             return False
@@ -437,7 +441,10 @@ class FaceEmbedder:
                 image_points,
                 camera_matrix,
                 dist_coeffs,
-                flags=cv.SOLVEPNP_ITERATIVE,
+                # Five facial landmarks are not enough for the iterative
+                # PnP initializer. SQPNP is designed for >=3 points and is
+                # stable enough for this lightweight quality gate.
+                flags=cv.SOLVEPNP_SQPNP,
             )
             if not ok:
                 return False
@@ -462,11 +469,11 @@ class FaceEmbedder:
                 return False
             return True
         except Exception:
-            # Never let an optional pose-quality calculation break the face
-            # pipeline. If pose cannot be estimated, reject the template
-            # rather than storing a questionable profile image.
-            log.debug("face pose estimation failed", exc_info=True)
-            return False
+            # Pose is a quality filter, not a reason to disable recognition.
+            # If a frame cannot produce a reliable pose estimate, keep the
+            # existing complete-face checks and allow SFace to embed it.
+            log.debug("face pose estimation unavailable; keeping complete face", exc_info=True)
+            return True
 
     def _embed(
         self,
