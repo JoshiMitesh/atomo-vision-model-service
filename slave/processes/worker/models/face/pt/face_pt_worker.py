@@ -24,6 +24,7 @@ from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
 from slave.processes.worker.models.face.pt.face_pt_detector import FacePtDetector
+from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
 
@@ -54,6 +55,12 @@ class FacePtWorker:
         model_path = os.path.join(models_dir, assignment.model_name)
         self._detector = with_embedding(
             FacePtDetector(model_path, model_config, assignment.model_name), model_config, models_dir
+        )
+        self._face_tracker = FaceController(
+            job_id=job.job_id,
+            detector_factory=lambda: self._detector,
+            off_timeout_sec=0,
+            enabled=True,
         )
 
         url = job.camera_stream
@@ -88,51 +95,78 @@ class FacePtWorker:
 
     def _process_frame(self, frame) -> None:
         detections = self._detector.detect(frame.image)
+        self._face_tracker.track_detections(detections)
 
-        object_key = url = None
-        annotated = None
+        # Publish/upload only when a face track first appears. A continuously
+        # visible face therefore produces one event and one MinIO object.
+        for detection, track_id in self._face_tracker.new_face_events:
+            crop = self._crop_face(frame.image, detection.bbox)
+            if crop is None:
+                continue
+
+            upload_info = self._frame_uploader.upload_face_crop(
+                self._worker_key,
+                frame.frame_id,
+                track_id,
+                crop,
+            )
+            if upload_info is None:
+                continue
+
+            object_key, url = upload_info
+            crop_height, crop_width = (int(v) for v in crop.shape[:2])
+            telemetry = group_detections(
+                [detection],
+                self._job,
+                tracking_id=track_id,
+            )
+
+            result = DetectionResult(
+                job_id=self._job.job_id,
+                frame_id=frame.frame_id,
+                occurred_at=ist_now_iso(),
+                device_name=self._identity.device_name,
+                branch_id=self._job.branch_id,
+                branch_name=self._job.branch_name,
+                device_id=self._identity.device_id,
+                zone_id=self._job.zone_id,
+                zone_name=self._job.zone_name,
+                camera_id=self._job.camera_id,
+                camera_name=self._job.camera_name,
+                camera_stream=self._job.camera_stream,
+                camera_status=self._frame_reader.get_status(),
+                telemetry=telemetry,
+                object_key=object_key,
+                url=url,
+                width=crop_width,
+                height=crop_height,
+            )
+            self._detection_publisher.publish_detection(result)
+
         if detections:
-            annotated = draw_detections(frame.image, detections)
-            upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
-            if upload_info is not None:
-                object_key, url = upload_info
+            self._video_manager.feed_frame(draw_detections(frame.image, detections))
 
-        width = height = None
-        if object_key is not None:
-            height, width = (int(v) for v in frame.image.shape[:2])
-
-        telemetry = group_detections(detections, self._job, tracking_id=object_key)
-
-        result = DetectionResult(
-            job_id=self._job.job_id,
-            frame_id=frame.frame_id,
-            occurred_at=ist_now_iso(),
-            device_name=self._identity.device_name,
-            branch_id=self._job.branch_id,
-            branch_name=self._job.branch_name,
-            device_id=self._identity.device_id,
-            zone_id=self._job.zone_id,
-            zone_name=self._job.zone_name,
-            camera_id=self._job.camera_id,
-            camera_name=self._job.camera_name,
-            camera_stream=self._job.camera_stream,
-            camera_status=self._frame_reader.get_status(),
-            telemetry=telemetry,
-            object_key=object_key,
-            url=url,
-            width=width,
-            height=height,
-        )
-        self._detection_publisher.publish_detection(result)
-
-        if detections:
-            self._video_manager.feed_frame(annotated)
+    @staticmethod
+    def _crop_face(frame_image, bbox):
+        height, width = frame_image.shape[:2]
+        x1, y1, x2, y2 = bbox
+        x1 = max(0, min(width, int(x1)))
+        y1 = max(0, min(height, int(y1)))
+        x2 = max(0, min(width, int(x2)))
+        y2 = max(0, min(height, int(y2)))
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return frame_image[y1:y2, x1:x2].copy()
 
     def _cleanup(self) -> None:
         try:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
+        try:
+            self._face_tracker.release()
+        except Exception:
+            self._log.exception("error releasing face tracker")
         try:
             self._detector.release()
         except Exception:
