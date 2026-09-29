@@ -97,7 +97,22 @@ class FacePtWorker:
 
     def _process_frame(self, frame) -> None:
         detections = self._detector.detect(frame.image)
-        self._face_tracker.track_detections(detections)
+
+        # Match the reference face-quality filters before tracking/event
+        # creation: reject weak detections and faces too small to produce
+        # a useful recognition crop.
+        quality_detections = []
+        for detection in detections:
+            x1, y1, x2, y2 = detection.bbox
+            box_w = max(0.0, x2 - x1)
+            box_h = max(0.0, y2 - y1)
+            if detection.confidence < 0.60:
+                continue
+            if box_w < 50.0 or box_h < 50.0:
+                continue
+            quality_detections.append(detection)
+
+        self._face_tracker.track_detections(quality_detections)
 
         # Publish/upload only when a face track first appears. A continuously
         # visible face therefore produces one event and one MinIO object.
