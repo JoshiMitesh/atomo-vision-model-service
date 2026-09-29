@@ -18,7 +18,7 @@ status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.31
+  host: 192.168.1.38
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
@@ -58,12 +58,12 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.31:9000
+  endpoint: 192.168.1.38:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: numberplate
   secure: false
-  enabled: false # skip MinIO frame/video uploads for now — set back to true when needed
+  enabled: True # skip MinIO frame/video uploads for now — set back to true when needed
 
 video:
   segment_seconds: 30
