@@ -47,19 +47,6 @@ class FaceEmbedder:
         self._l2_normalize = bool(embedding_config.get("l2_normalize", False))
         self._decimals = int(embedding_config.get("decimals", 6))
 
-        # Recognition/profile images should be reasonably frontal. Strong
-        # downward/upward pitch or side-profile faces are not useful enrollment
-        # templates and can create duplicate profiles for the same person.
-        self._max_pitch_deg = float(
-            embedding_config.get("max_pitch_deg", 25.0)
-        )
-        self._max_yaw_deg = float(
-            embedding_config.get("max_yaw_deg", 35.0)
-        )
-        self._max_roll_deg = float(
-            embedding_config.get("max_roll_deg", 35.0)
-        )
-
         self._landmark_score_thresh = float(
             embedding_config.get("landmark_score_thresh", _LANDMARK_SCORE_THRESH)
         )
@@ -120,14 +107,10 @@ class FaceEmbedder:
             return
 
         log.info(
-            "face embedder ready (model=%s, YuNet conf=%.2f, nms=%.2f, "
-            "pose pitch<=%.1f yaw<=%.1f roll<=%.1f)",
+            "face embedder ready (model=%s, YuNet conf=%.2f, nms=%.2f)",
             self._model_name,
             self._landmark_score_thresh,
             self._landmark_nms_thresh,
-            self._max_pitch_deg,
-            self._max_yaw_deg,
-            self._max_roll_deg,
         )
 
     @property
@@ -177,10 +160,6 @@ class FaceEmbedder:
                 landmark_face = self._match_yunet_face(faces, det.bbox)
                 if landmark_face is not None and self._landmarks_look_complete(
                     landmark_face, det.bbox
-                ) and self._face_pose_is_usable(
-                    landmark_face,
-                    det.bbox,
-                    frame.shape,
                 ):
                     embedding = self._embed(frame, landmark_face)
                     face_visible = embedding is not None
@@ -373,107 +352,6 @@ class FaceEmbedder:
             return False
 
         return True
-
-    @staticmethod
-    def _face_pose_is_usable(
-        landmark_face: np.ndarray,
-        bbox: Tuple[float, float, float, float],
-        frame_shape: Tuple[int, ...],
-    ) -> bool:
-        """Reject strongly tilted/side-facing heads before enrollment.
-
-        YuNet provides five landmarks.  A lightweight 3-D head-pose estimate
-        is used so a person looking down at a laptop/phone does not become a
-        persistent profile template.  This is intentionally a quality gate,
-        not a recognition gate: recognition continues as soon as a usable
-        face is visible again.
-        """
-        # The limits are intentionally asymmetric in spirit: pitch is the
-        # strictest because downward-looking faces are the main bad template
-        # seen in this camera setup.  Yaw/roll also prevent strong profiles.
-        max_pitch = self._max_pitch_deg
-        max_yaw = self._max_yaw_deg
-        max_roll = self._max_roll_deg
-
-        if landmark_face is None or len(landmark_face) < 14:
-            return False
-
-        image_points = np.asarray(
-            landmark_face[4:14], dtype=np.float64
-        ).reshape(5, 2)
-        if not np.isfinite(image_points).all():
-            return False
-
-        x1, y1, x2, y2 = map(float, bbox)
-        box_w = x2 - x1
-        box_h = y2 - y1
-        if box_w < 1.0 or box_h < 1.0:
-            return False
-
-        # Generic SFace/YuNet-compatible face model points. Exact physical
-        # scale is irrelevant to solvePnP; only the relative geometry matters.
-        model_points = np.asarray(
-            [
-                [225.0, 170.0, -135.0],   # right eye
-                [-225.0, 170.0, -135.0],  # left eye
-                [0.0, 0.0, 0.0],         # nose
-                [150.0, -150.0, -125.0], # right mouth
-                [-150.0, -150.0, -125.0],# left mouth
-            ],
-            dtype=np.float64,
-        )
-
-        height, width = int(frame_shape[0]), int(frame_shape[1])
-        focal = float(max(width, height))
-        camera_matrix = np.asarray(
-            [
-                [focal, 0.0, width * 0.5],
-                [0.0, focal, height * 0.5],
-                [0.0, 0.0, 1.0],
-            ],
-            dtype=np.float64,
-        )
-        dist_coeffs = np.zeros((4, 1), dtype=np.float64)
-
-        try:
-            ok, rotation_vec, translation_vec = cv.solvePnP(
-                model_points,
-                image_points,
-                camera_matrix,
-                dist_coeffs,
-                # Five facial landmarks are not enough for the iterative
-                # PnP initializer. SQPNP is designed for >=3 points and is
-                # stable enough for this lightweight quality gate.
-                flags=cv.SOLVEPNP_SQPNP,
-            )
-            if not ok:
-                return False
-
-            rotation_matrix, _ = cv.Rodrigues(rotation_vec)
-            angles, *_ = cv.RQDecomp3x3(rotation_matrix)
-            pitch = float(angles[0])
-            yaw = float(angles[1])
-            roll = float(angles[2])
-
-            if (
-                abs(pitch) > max_pitch
-                or abs(yaw) > max_yaw
-                or abs(roll) > max_roll
-            ):
-                log.debug(
-                    "face rejected by pose gate: pitch=%.1f yaw=%.1f roll=%.1f",
-                    pitch,
-                    yaw,
-                    roll,
-                )
-                return False
-            return True
-        except Exception:
-            # Pose is a quality filter, not a reason to disable recognition.
-            # If a frame cannot produce a reliable pose estimate, keep the
-            # existing complete-face checks and allow SFace to embed it.
-            log.debug("face pose estimation unavailable; keeping complete face", exc_info=True)
-            return True
 
     def _embed(
         self,
