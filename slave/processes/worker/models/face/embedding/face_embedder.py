@@ -374,8 +374,8 @@ class FaceEmbedder:
 
         return True
 
-    @staticmethod
     def _face_pose_is_usable(
+        self,
         landmark_face: np.ndarray,
         bbox: Tuple[float, float, float, float],
         frame_shape: Tuple[int, ...],
