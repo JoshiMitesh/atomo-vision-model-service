@@ -68,7 +68,7 @@ class FrameUploader:
         if not self._minio.enabled:
             return None
 
-        ok, encoded = cv2.imencode(".jpg", image)
+        ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 90])
         if not ok:
             log.warning(
                 "failed to JPEG-encode face crop frame_id=%s track_id=%s job_id=%s",
