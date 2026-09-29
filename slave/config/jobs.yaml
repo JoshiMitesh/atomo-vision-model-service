@@ -3,8 +3,8 @@ jobs:
     branch_id: branch_01
     branch_name: Main Branch
     camera_id: bbc8dca4-be94-45e9-a804-af6adaa8252a
-    camera_name: cam_tapo_105
-    camera_stream: rtsp://192.168.1.17:8554/cam_tapo_105
+    camera_name: video
+    camera_stream: rtsp://192.168.1.38:8554/video
     zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
     zone_name: office
     model_assignments:
