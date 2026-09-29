@@ -155,12 +155,22 @@ class FaceEmbedder:
         result: List[Detection] = []
         for idx, det in enumerate(detections):
             embedding = None
+            face_visible = False
             if idx in embeddable and self._is_embeddable(det):
                 landmark_face = self._match_yunet_face(faces, det.bbox)
-                if landmark_face is not None:
+                if landmark_face is not None and self._landmarks_look_complete(
+                    landmark_face, det.bbox
+                ):
                     embedding = self._embed(frame, landmark_face)
+                    face_visible = embedding is not None
 
-            result.append(self._with_embedding(det, embedding))
+            result.append(
+                self._with_embedding(
+                    det,
+                    embedding,
+                    face_visible=face_visible,
+                )
+            )
 
         return result
 
@@ -169,7 +179,10 @@ class FaceEmbedder:
         self._landmarker = None
 
     def _with_embedding(
-        self, det: Detection, embedding: Optional[List[float]]
+        self,
+        det: Detection,
+        embedding: Optional[List[float]],
+        face_visible: bool = False,
     ) -> Detection:
         return replace(
             det,
@@ -177,6 +190,7 @@ class FaceEmbedder:
                 **det.extra,
                 "embedding": embedding,
                 "embedding_model": self._model_name if embedding else None,
+                "face_visible": bool(face_visible),
             },
         )
 
@@ -284,6 +298,60 @@ class FaceEmbedder:
                 best = face
 
         return best
+
+    @staticmethod
+    def _landmarks_look_complete(
+        landmark_face: np.ndarray,
+        bbox: Tuple[float, float, float, float],
+    ) -> bool:
+        """Reject heavily occluded/partial faces before recognition.
+
+        YuNet returns right-eye, left-eye, nose and two mouth-corner
+        landmarks.  A valid event requires all five points to lie inside
+        the detector box and to form plausible vertical face geometry.
+        This prevents detections where only the forehead/eyes remain
+        visible above an occluding object such as a laptop.
+        """
+        if landmark_face is None or len(landmark_face) < 14:
+            return False
+
+        points = np.asarray(landmark_face[4:14], dtype=np.float32).reshape(5, 2)
+        if not np.isfinite(points).all():
+            return False
+
+        x1, y1, x2, y2 = map(float, bbox)
+        w = x2 - x1
+        h = y2 - y1
+        if w < 1.0 or h < 1.0:
+            return False
+
+        margin_x = 0.05 * w
+        margin_y = 0.05 * h
+        if np.any(points[:, 0] < x1 - margin_x) or np.any(points[:, 0] > x2 + margin_x):
+            return False
+        if np.any(points[:, 1] < y1 - margin_y) or np.any(points[:, 1] > y2 + margin_y):
+            return False
+
+        right_eye, left_eye, nose, right_mouth, left_mouth = points
+        eye_y = (right_eye[1] + left_eye[1]) * 0.5
+        mouth_y = (right_mouth[1] + left_mouth[1]) * 0.5
+
+        # Eyes should be above the nose, and the mouth should be clearly
+        # below the eyes.  Reject geometries that collapse into an
+        # upper-face-only detection.
+        if nose[1] <= eye_y:
+            return False
+        if mouth_y <= eye_y + (0.12 * h):
+            return False
+        if mouth_y <= nose[1] + (0.03 * h):
+            return False
+
+        eye_gap = float(np.linalg.norm(right_eye - left_eye))
+        mouth_gap = float(np.linalg.norm(right_mouth - left_mouth))
+        if eye_gap < 0.08 * w or mouth_gap < 0.05 * w:
+            return False
+
+        return True
 
     def _embed(
         self,
