@@ -110,6 +110,11 @@ class FacePtWorker:
                 continue
             if box_w < 50.0 or box_h < 50.0:
                 continue
+            # Events require a complete, usable face from the reference
+            # YuNet/SFace validation. Partially occluded faces (for
+            # example, a person hidden behind a laptop) are ignored.
+            if not bool(detection.extra.get("face_visible", False)):
+                continue
             quality_detections.append(detection)
 
         self._face_tracker.track_detections(quality_detections)
