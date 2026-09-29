@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import threading
 
+import cv2
+
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
 from slave.models.job import JobConfig, ModelAssignment
