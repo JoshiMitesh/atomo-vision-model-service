@@ -2,13 +2,13 @@ jobs:
   - job_id: job_001
     branch_id: branch_01
     branch_name: Main Branch
-    camera_id: 89b8dd9b-f6ba-4b92-a992-4355b46e9269
+    camera_id: bbc8dca4-be94-45e9-a804-af6adaa8252a
     camera_name: cam_tapo_105
     camera_stream: rtsp://192.168.1.17:8554/cam_tapo_105
-    zone_id: 875ebe5b-487e-4dff-80c9-fb81099074ae
-    zone_name: admin
+    zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
+    zone_name: office
     model_assignments:
-      - model_type: person
-        model_name: person.pt
-        camera_model_assign_id: 1a89cd02-0769-4bdd-ab0d-00b6bc1b88f8  
-        model_id: 169cf687-3221-483c-bfc6-200651a7ea17
+      - model_type: face
+        model_name: face.pt  # TEMP TEST — revert to face.pt after
+        camera_model_assign_id: f823ec77-b8bf-420b-bcd5-23c156b4f5e4
+        model_id: 6ee258d3-5223-47b2-8b30-650ac486946c
