@@ -54,6 +54,7 @@ from slave.processes.publisher.upload_publisher import UploadPublisher
 from slave.processes.subscriber.subscriber import NatsSubscriber
 from slave.processes.worker.worker_factory import WorkerServices
 from slave.processes.worker.worker_manager import WorkerManager
+from slave.processes.worker.models.face.embedding.face_enrollment_server import run_face_enrollment_server
 from slave.storage.yaml import job_store
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -157,6 +158,17 @@ def main() -> None:
 
     shutdown_event = threading.Event()
 
+    # Internal webcam-enrollment API. It loads the same YuNet/SFace models as
+    # live face recognition but runs independently, so enrollment cannot stop
+    # or alter the camera/job workers.
+    enrollment_thread = threading.Thread(
+        target=run_face_enrollment_server,
+        args=(services.models_root, shutdown_event),
+        name="face-enrollment-server",
+        daemon=True,
+    )
+    enrollment_thread.start()
+
     def _handle_signal(signum, frame) -> None:
         log.info("received signal %s, shutting down", signum)
         shutdown_event.set()
@@ -170,6 +182,7 @@ def main() -> None:
     log.info("Slave node shutting down")
     _subscriber_stop_setter()
     subscriber_thread.join(timeout=10)
+    enrollment_thread.join(timeout=5)
     device_agent.stop()
     job_runner.stop()
     worker_manager.stop_all()
