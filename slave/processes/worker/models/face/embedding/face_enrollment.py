@@ -28,7 +28,7 @@ class FaceEnrollmentProcessor:
             os.path.join(face_dir, "face_detection_yunet_2023mar_int8.onnx"),
             "",
             (320, 320),
-            0.90,
+            0.80,
             0.30,
             5000,
             cv.dnn.DNN_BACKEND_OPENCV,
@@ -37,6 +37,8 @@ class FaceEnrollmentProcessor:
 
     def process(self, frame_base64: str) -> dict:
         try:
+            if "," in frame_base64:
+                frame_base64 = frame_base64.split(",", 1)[1]
             raw = base64.b64decode(frame_base64, validate=True)
             frame = cv.imdecode(np.frombuffer(raw, dtype=np.uint8), cv.IMREAD_COLOR)
             if frame is None:
@@ -53,7 +55,7 @@ class FaceEnrollmentProcessor:
                 if face.shape[0] < 15 or not np.isfinite(face).all():
                     continue
                 confidence = float(face[-1])
-                if confidence < 0.90:
+                if confidence < 0.80:
                     continue
                 x, y, w, h = map(float, face[:4])
                 if w < 50.0 or h < 50.0:
