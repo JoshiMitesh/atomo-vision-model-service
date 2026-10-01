@@ -25,10 +25,11 @@ embedding:
   # resolved flat against processes/worker/models/face/.
   enabled: true
   model_name: face_recognition         # published as "embedding_model"
-  # YuNet is run on each padded face crop only to recover the 5
-  # landmarks SFace alignment needs (face.nb/.pt/.so output a bbox
-  # only). Required: unaligned bbox crops give embeddings that don't
-  # match aligned ones (cosine ~0.2-0.6), so there is no fallback --
+  # YuNet landmarks are used for SFace alignment. When the job model
+  # is YuNet, its detected landmarks are reused directly; PT/NB/SO face
+  # detectors fall back to the configured YuNet landmark model.
+  # Required: unaligned bbox crops give embeddings that don't
+  #  # match aligned ones (cosine ~0.2-0.6), so there is no fallback --
   # a face with no landmarks gets embedding: null.
   min_face_px: 20            # smaller faces get embedding: null
   min_det_conf: 0.50          # lower-confidence faces get embedding: null
