@@ -16,7 +16,7 @@ from typing import Callable, Dict, Tuple
 WorkerBuilder = Callable[..., object]
 
 SUPPORTED_MODEL_TYPES = ("person", "face", "safety", "fire", "number_plate")
-SUPPORTED_EXTENSIONS = (".pt", ".nb", ".so")
+SUPPORTED_EXTENSIONS = (".pt", ".nb", ".so", ".onnx")
 
 
 class ModelNotSupportedError(ValueError): 
@@ -55,6 +55,7 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     from slave.processes.worker.models.face.pt.face_pt_worker import FacePtWorker
     from slave.processes.worker.models.face.nb.face_nb_worker import FaceNbWorker
     from slave.processes.worker.models.face.so.face_so_worker import FaceSoWorker
+    from slave.processes.worker.models.face.yunet.face_yunet_worker import FaceYunetWorker
     from slave.processes.worker.models.safety.pt.safety_pt_worker import SafetyPtWorker
     from slave.processes.worker.models.safety.nb.safety_nb_worker import SafetyNbWorker
     from slave.processes.worker.models.safety.so.safety_so_worker import SafetySoWorker
@@ -72,6 +73,7 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     registry.register("face", ".pt", FacePtWorker)   # standalone Face job (no Person job required) — same trigger-free Face detector used by face_controller.py, just running as its own job instead of person-chained.
     registry.register("face", ".nb", FaceNbWorker)
     registry.register("face", ".so", FaceSoWorker)
+    registry.register("face", ".onnx", FaceYunetWorker)
     registry.register("safety", ".pt", SafetyPtWorker)   # standalone Safety job — 9-class PPE-compliance detector, also face-controller-attached (Face auto-triggers off Safety's own "person" class, see worker_factory.py).
     registry.register("safety", ".nb", SafetyNbWorker)
     registry.register("safety", ".so", SafetySoWorker)
