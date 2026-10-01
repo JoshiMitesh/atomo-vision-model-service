@@ -37,7 +37,12 @@ _LANDMARK_TOP_K = 5000
 
 
 class FaceEmbedder:
-    def __init__(self, embedding_config: dict, models_dir: str) -> None:
+    def __init__(
+        self,
+        embedding_config: dict,
+        models_dir: str,
+        yunet_model_name: Optional[str] = None,
+    ) -> None:
         self._model_name = str(
             embedding_config.get("model_name", "face_recognition")
         )
@@ -60,11 +65,9 @@ class FaceEmbedder:
         self._recognizer = None
         self._landmarker = None
 
-        model_file = str(
-            embedding_config.get(
-                "model_file", "face_recognition_sface_2021dec_int8.onnx"
-            )
-        )
+        # SFace is intentionally an internal implementation dependency.
+        # It is never selected from jobs.yaml.
+        model_file = "face_recognition_sface_2021dec_int8.onnx"
         model_path = os.path.join(models_dir, model_file)
         try:
             self._recognizer = cv.FaceRecognizerSF.create(
@@ -80,8 +83,13 @@ class FaceEmbedder:
             )
             return
 
+        # YuNet is normally selected by the face job's model_assignment.
+        # Keep the old filename as a backward-compatible fallback for
+        # Person-triggered FaceController jobs that do not carry a YuNet
+        # assignment yet.
         landmark_file = str(
-            embedding_config.get(
+            yunet_model_name
+            or embedding_config.get(
                 "landmark_model_file",
                 "face_detection_yunet_2023mar_int8.onnx",
             )
