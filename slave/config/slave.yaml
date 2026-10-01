@@ -18,7 +18,7 @@ status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.38
+  host: 192.168.1.31
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
