@@ -32,11 +32,19 @@ class EmbeddingDetector:
             self._embedder.release()
 
 
-def with_embedding(detector, face_config: dict, models_dir: str):
+def with_embedding(
+    detector,
+    face_config: dict,
+    models_dir: str,
+    yunet_model_name: str | None = None,
+):
     """Wrap `detector` with SFace embedding when face.yaml's
     `embedding.enabled` is true; otherwise return it unchanged.
     """
     embedding_cfg = face_config.get("embedding", {})
     if not bool(embedding_cfg.get("enabled", False)):
         return detector
-    return EmbeddingDetector(detector, FaceEmbedder(embedding_cfg, models_dir))
+    return EmbeddingDetector(
+        detector,
+        FaceEmbedder(embedding_cfg, models_dir, yunet_model_name=yunet_model_name),
+    )
