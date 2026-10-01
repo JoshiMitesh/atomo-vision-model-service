@@ -9,6 +9,6 @@ jobs:
     zone_name: office
     model_assignments:
       - model_type: face
-        model_name: face.pt  # TEMP TEST — revert to face.pt after
+        model_name: face_detection_yunet_2023mar_int8.onnx
         camera_model_assign_id: f823ec77-b8bf-420b-bcd5-23c156b4f5e4
         model_id: 6ee258d3-5223-47b2-8b30-650ac486946c
