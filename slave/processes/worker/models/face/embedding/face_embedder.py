@@ -165,7 +165,9 @@ class FaceEmbedder:
             embedding = None
             face_visible = False
             if idx in embeddable and self._is_embeddable(det):
-                landmark_face = self._match_yunet_face(faces, det.bbox)
+                landmark_face = self._landmarks_from_detection(det)
+                if landmark_face is None:
+                    landmark_face = self._match_yunet_face(faces, det.bbox)
                 if landmark_face is not None and self._landmarks_look_complete(
                     landmark_face, det.bbox
                 ):
@@ -306,6 +308,29 @@ class FaceEmbedder:
                 best = face
 
         return best
+
+    @staticmethod
+    def _landmarks_from_detection(det: Detection) -> Optional[np.ndarray]:
+        landmarks = det.extra.get("yunet_landmarks")
+        if landmarks is None:
+            return None
+
+        points = np.asarray(landmarks, dtype=np.float32).reshape(-1)
+        if points.size != 10 or not np.isfinite(points).all():
+            return None
+
+        x1, y1, x2, y2 = det.bbox
+        x = float(x1)
+        y = float(y1)
+        w = float(x2 - x1)
+        h = float(y2 - y1)
+        return np.concatenate(
+            [
+                np.asarray([x, y, w, h], dtype=np.float32),
+                points,
+                np.asarray([det.confidence], dtype=np.float32),
+            ]
+        )
 
     @staticmethod
     def _landmarks_look_complete(
