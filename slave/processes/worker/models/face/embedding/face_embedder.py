@@ -27,6 +27,7 @@ import numpy as np
 
 from slave.logging.logger import get_logger
 from slave.models.detection import Detection
+from slave.processes.worker.models.face.embedding.face_image_enhancer import enhance_face
 
 log = get_logger(__name__)
 
@@ -392,12 +393,14 @@ class FaceEmbedder:
         landmark_face: np.ndarray,
     ) -> Optional[List[float]]:
         try:
-            feature = self._recognizer.feature(
-                self._recognizer.alignCrop(
-                    frame,
-                    landmark_face[:-1].astype(np.float32),
-                )
+            # Enhance only the face image used by SFace. The source frame,
+            # detector boxes, and published evidence remain unchanged.
+            aligned = self._recognizer.alignCrop(
+                frame,
+                landmark_face[:-1].astype(np.float32),
             )
+            aligned = enhance_face(aligned)
+            feature = self._recognizer.feature(aligned)
             if feature is None or feature.size == 0:
                 return None
 
