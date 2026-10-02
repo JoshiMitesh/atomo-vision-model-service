@@ -87,10 +87,13 @@ class FaceEnrollmentProcessor:
             # Store the same raw SFace vector format as live recognition.
             embedding = [round(float(value), 6) for value in vector]
 
+            # Return the same-size enhanced enrollment crop so the
+            # visible profile photo also benefits from the cleanup.
             aligned = self._recognizer.alignCrop(
                 frame,
                 face[:-1].astype(np.float32),
             )
+            aligned = enhance_face(aligned)
             ok, encoded = cv.imencode(
                 ".jpg",
                 aligned,
