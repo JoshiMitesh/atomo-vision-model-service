@@ -14,6 +14,8 @@ from typing import Optional
 import cv2 as cv
 import numpy as np
 
+from slave.processes.worker.models.face.embedding.face_image_enhancer import enhance_face
+
 
 class FaceEnrollmentProcessor:
     def __init__(self, models_root: str) -> None:
@@ -69,12 +71,12 @@ class FaceEnrollmentProcessor:
                 return {"ok": False, "reason": "face_quality"}
 
             _, confidence, face = max(candidates, key=lambda item: item[0])
-            feature = self._recognizer.feature(
-                self._recognizer.alignCrop(
-                    frame,
-                    face[:-1].astype(np.float32),
-                )
+            aligned = self._recognizer.alignCrop(
+                frame,
+                face[:-1].astype(np.float32),
             )
+            aligned = enhance_face(aligned)
+            feature = self._recognizer.feature(aligned)
             if feature is None or feature.size == 0:
                 return {"ok": False, "reason": "embedding_failed"}
 
