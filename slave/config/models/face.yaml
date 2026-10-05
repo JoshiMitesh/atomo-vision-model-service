@@ -1,74 +1,46 @@
 model_type: face
-
 classes:
   - face
 num_classes: 1
-# NOT num_classes + 64 DFL channels like person.yaml — face.nb/.so are a
-# direct box-regression export (no DFL head), confirmed via this model's
-# ONNX output shapes ([1,5,80,80] etc.). See face_nb_detector.py's
-# docstring. listsize = num_classes(1) + 4 direct l/t/r/b offsets.
 listsize: 5
-
 thresholds:
   obj_thresh: 0.60
   nms_thresh: 0.50
-
 input:
-  default_size: 640
+  default_size: 960
+  default_height: 540
   large_size: 1024
-  large_size_keyword: "1024"   # model_name containing this token uses large_size
+  large_size_keyword: "1024"
   pad_value: 114
-
 embedding:
-  # Per-face SFace embedding attached to every face detection (both the
-  # standalone Face jobs and the Person-triggered Face path). Files are
-  # resolved flat against processes/worker/models/face/.
   enabled: true
-  model_name: face_recognition         # published as "embedding_model"
-  # YuNet landmarks are used for SFace alignment. When the job model
-  # is YuNet, its detected landmarks are reused directly; PT/NB/SO face
-  # detectors fall back to the configured YuNet landmark model.
-  # Required: unaligned bbox crops give embeddings that don't
-  #  # match aligned ones (cosine ~0.2-0.6), so there is no fallback --
-  # a face with no landmarks gets embedding: null.
-  min_face_px: 20            # smaller faces get embedding: null
-  min_det_conf: 0.50          # lower-confidence faces get embedding: null
-  max_faces_per_frame: 10    # largest faces embedded first; rest get null
-  l2_normalize: false        # false = raw SFace output (what the reference DB stores)
+  model_name: face_recognition
+  min_face_px: 50
+  min_det_conf: 0.60
+  max_faces_per_frame: 10
+  l2_normalize: false
   decimals: 6
-
+  landmark_score_thresh: 0.90
+  landmark_nms_thresh: 0.30
+  landmark_top_k: 5000
 yunet:
-  score_thresh: 0.80
+  score_thresh: 0.90
   nms_thresh: 0.30
   top_k: 5000
-
 trigger:
-  # Keep face detection off by default. This matches the reference
-  # implementation and avoids burning extra NPU/CPU on a second model
-  # while the board is already running multiple camera streams.
   enabled: false
-  # How long (seconds) Face detection keeps running after the Person
-  # worker on this job stops reporting any person in frame, before
-  # auto-releasing the Face model (10-15s grace window).
   off_timeout_sec: 10
-  # Run Face inference every Nth frame while active (>=1) — a coarser
-  # interval trades face-detection latency for CPU headroom.
   inference_frame_interval: 2
-
 pt:
-  # Resolved flat against processes/worker/models/face/ (same
-  # convention as person.pt — see that folder's README.md).
   model_file: face.pt
-  device: auto          # auto | cpu | cuda:0
+  device: auto
   half: false
-
 nb:
   model_file: face.nb
-  library_file: face.so   # .nb companion library, resolved against the same folder
+  library_file: face.so
   level: 0
   device_id: 0
   board: Electron
-
 so:
-  library_file: face.so   # here .so IS the model+library, same as person.so
+  library_file: face.so
   device_id: 0
