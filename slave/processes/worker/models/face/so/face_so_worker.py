@@ -82,7 +82,9 @@ class FaceSoWorker:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
-        detections = self._detector.detect(frame.image)
+        # Match the working project: face inference/crops operate on 960x540.
+        working_image = resize_reference_frame(frame.image)
+        detections = self._detector.detect(working_image)
 
         # Reference quality gate: only usable faces create media/events.
         detections = [
@@ -96,7 +98,7 @@ class FaceSoWorker:
         object_key = url = None
         annotated = None
         if detections:
-            annotated = draw_detections(frame.image, detections)
+            annotated = draw_detections(working_image, detections)
             upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
             if upload_info is not None:
                 object_key, url = upload_info
