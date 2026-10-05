@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 import cv2
 
@@ -66,10 +67,6 @@ class FaceYunetWorker:
             yunet_model_name=assignment.model_name,
         )
 
-        # Keep the exact tracking/event behavior used by the existing
-        # standalone .pt face worker. Tracking is camera/job-local and a
-        # continuously visible face creates only one new-face event until
-        # its track expires.
         self._face_tracker = FaceController(
             job_id=job.job_id,
             detector_factory=lambda: self._detector,
@@ -111,11 +108,20 @@ class FaceYunetWorker:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
-        # Match the working project: face inference/crops operate on 960x540.
-        working_image = resize_reference_frame(frame.image)
-        detections = self._detector.detect(working_image)
+        process_start = time.monotonic()
+        frame_age = max(0.0, time.time() - frame.timestamp)
 
-        # Reference quality gate: only usable faces create media/events.
+        # Match the working project: face inference/crops operate on 960x540.
+        timing = {}
+
+        stage_start = time.monotonic()
+        working_image = resize_reference_frame(frame.image)
+        timing["resize"] = time.monotonic() - stage_start
+
+        stage_start = time.monotonic()
+        detections = self._detector.detect(working_image)
+        timing["detect_and_embedding"] = time.monotonic() - stage_start
+
         detections = [
             detection for detection in detections
             if detection.confidence >= 0.60
@@ -124,21 +130,28 @@ class FaceYunetWorker:
             and bool(detection.extra.get("face_visible", True))
         ]
 
+        stage_start = time.monotonic()
         self._face_tracker.track_detections(detections)
+        timing["tracking"] = time.monotonic() - stage_start
 
-        # Publish/upload only when a face track first appears. A continuously
-        # visible face therefore produces one event and one MinIO face crop.
+        event_count = 0
         for detection, track_id in self._face_tracker.new_face_events:
+            event_count += 1
+
+            stage_start = time.monotonic()
             crop = self._crop_face(working_image, detection.bbox)
+            timing["crop"] = timing.get("crop", 0.0) + (time.monotonic() - stage_start)
             if crop is None:
                 continue
 
+            stage_start = time.monotonic()
             upload_info = self._frame_uploader.upload_face_crop(
                 self._worker_key,
                 frame.frame_id,
                 track_id,
                 crop,
             )
+            timing["minio"] = timing.get("minio", 0.0) + (time.monotonic() - stage_start)
             if upload_info is None:
                 continue
 
@@ -170,10 +183,35 @@ class FaceYunetWorker:
                 width=crop_width,
                 height=crop_height,
             )
+
+            stage_start = time.monotonic()
             self._detection_publisher.publish_detection(result)
+            timing["publish"] = timing.get("publish", 0.0) + (time.monotonic() - stage_start)
 
         if detections:
+            stage_start = time.monotonic()
             self._video_manager.feed_frame(draw_detections(working_image, detections))
+            timing["video_queue"] = time.monotonic() - stage_start
+
+        total = time.monotonic() - process_start
+
+        if event_count or frame_age >= 1.0 or total >= 1.0:
+            self._log.info(
+                "FACE_TIMING frame=%s age=%.3fs resize=%.3fs detect_embedding=%.3fs "
+                "tracking=%.3fs crop=%.3fs minio=%.3fs publish=%.3fs video_queue=%.3fs "
+                "total=%.3fs events=%d",
+                frame.frame_id,
+                frame_age,
+                timing.get("resize", 0.0),
+                timing.get("detect_and_embedding", 0.0),
+                timing.get("tracking", 0.0),
+                timing.get("crop", 0.0),
+                timing.get("minio", 0.0),
+                timing.get("publish", 0.0),
+                timing.get("video_queue", 0.0),
+                total,
+                event_count,
+            )
 
     _crop_face = staticmethod(crop_face)
 
