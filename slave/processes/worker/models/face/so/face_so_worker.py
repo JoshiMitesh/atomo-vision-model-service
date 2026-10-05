@@ -105,7 +105,7 @@ class FaceSoWorker:
 
         width = height = None
         if object_key is not None:
-            height, width = (int(v) for v in frame.image.shape[:2])
+            height, width = (int(v) for v in working_image.shape[:2])
 
         telemetry = group_detections(detections, self._job, tracking_id=object_key)
 
