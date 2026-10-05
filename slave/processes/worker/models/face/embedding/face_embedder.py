@@ -169,8 +169,10 @@ class FaceEmbedder:
                 landmark_face = self._landmarks_from_detection(det)
                 if landmark_face is None:
                     landmark_face = self._match_yunet_face(faces, det.bbox)
-                if landmark_face is not None and self._landmarks_look_complete(
-                    landmark_face, det.bbox
+                if (
+                    landmark_face is not None
+                    and self._landmarks_look_complete(landmark_face, det.bbox)
+                    and self._face_crop_looks_visible(frame, det.bbox, landmark_face)
                 ):
                     embedding = self._embed(frame, landmark_face)
                     face_visible = embedding is not None
@@ -386,6 +388,70 @@ class FaceEmbedder:
             return False
 
         return True
+
+    @staticmethod
+    def _face_crop_looks_visible(
+        frame: np.ndarray,
+        bbox: Tuple[float, float, float, float],
+        landmark_face: np.ndarray,
+    ) -> bool:
+        """Reject faces whose lower region is covered by a foreground object.
+
+        Laptop/monitor edges commonly appear as a strong horizontal boundary
+        across the lower half of an otherwise valid face detection. Combine
+        that boundary with the actual YuNet mouth landmarks so ordinary dark
+        hair/background pixels do not cause rejection.
+        """
+        try:
+            height, width = frame.shape[:2]
+            x1, y1, x2, y2 = [int(round(value)) for value in bbox]
+            x1 = max(0, min(width - 1, x1))
+            x2 = max(x1 + 1, min(width, x2))
+            y1 = max(0, min(height - 1, y1))
+            y2 = max(y1 + 1, min(height, y2))
+
+            crop = frame[y1:y2, x1:x2]
+            if crop.shape[0] < 40 or crop.shape[1] < 40:
+                return False
+
+            gray = cv.cvtColor(crop, cv.COLOR_BGR2GRAY)
+            h, w = gray.shape
+
+            # Look for the strongest horizontal luminance boundary in the
+            # middle/lower face. A monitor edge is long and coherent across
+            # most of the crop width.
+            best_ratio = 0.0
+            best_y = -1
+            for row in range(max(2, int(h * 0.35)), min(h - 2, int(h * 0.78))):
+                delta = np.abs(
+                    gray[row + 1, 3:-3].astype(np.int16)
+                    - gray[row - 1, 3:-3].astype(np.int16)
+                )
+                if delta.size == 0:
+                    continue
+                ratio = float(np.mean(delta > 22))
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_y = row
+
+            # Mouth landmarks are normalized by the crop bbox. If a strong
+            # horizontal boundary sits above the mouth, the lower face is
+            # likely hidden by a monitor/laptop.
+            points = np.asarray(landmark_face[4:14], dtype=np.float32).reshape(5, 2)
+            mouth_y = float((points[6, 1] + points[8, 1]) * 0.5)
+            relative_mouth_y = (mouth_y - y1) / max(1.0, float(y2 - y1))
+
+            if (
+                best_ratio >= 0.58
+                and 0.30 <= best_y / max(1.0, float(h)) <= 0.70
+                and relative_mouth_y >= 0.52
+            ):
+                return False
+
+            return True
+        except Exception:
+            # Quality filtering must never crash face recognition.
+            return True
 
     def _embed(
         self,
