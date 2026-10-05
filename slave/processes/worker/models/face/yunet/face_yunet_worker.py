@@ -17,7 +17,7 @@ import threading
 
 import cv2
 
-from slave.processes.worker.models.face.face_preprocess import crop_face
+from slave.processes.worker.models.face.face_preprocess import crop_face, resize_reference_frame
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -111,7 +111,9 @@ class FaceYunetWorker:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
-        detections = self._detector.detect(frame.image)
+        # Match the working project: face inference/crops operate on 960x540.
+        working_image = resize_reference_frame(frame.image)
+        detections = self._detector.detect(working_image)
 
         # Reference quality gate: only usable faces create media/events.
         detections = [
@@ -127,7 +129,7 @@ class FaceYunetWorker:
         # Publish/upload only when a face track first appears. A continuously
         # visible face therefore produces one event and one MinIO face crop.
         for detection, track_id in self._face_tracker.new_face_events:
-            crop = self._crop_face(frame.image, detection.bbox)
+            crop = self._crop_face(working_image, detection.bbox)
             if crop is None:
                 continue
 
@@ -171,7 +173,7 @@ class FaceYunetWorker:
             self._detection_publisher.publish_detection(result)
 
         if detections:
-            self._video_manager.feed_frame(draw_detections(frame.image, detections))
+            self._video_manager.feed_frame(draw_detections(working_image, detections))
 
     _crop_face = staticmethod(crop_face)
 
