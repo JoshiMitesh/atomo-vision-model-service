@@ -11,14 +11,16 @@ def passes_face_quality_gate(
     detection: Detection,
     *,
     min_confidence: float = 0.60,
-    min_box_size: float = 60.0,
+    min_box_size: float = 50.0,
+    min_brightness: float = 18.0,
+    min_contrast: float = 8.0,
 ) -> bool:
-    """Apply the moderate face-quality gate used before face tracking.
+    """Apply a moderate face-quality gate before tracking.
 
-    Confidence/size checks apply to every face detector. YuNet landmark
-    geometry is applied when the detector provides ``yunet_landmarks``.
-    Detectors without YuNet landmarks are not rejected solely because those
-    landmarks are unavailable.
+    The gate intentionally avoids strict pose checks so normal frontal and
+    moderately angled faces remain detectable. YuNet landmark geometry is
+    used only for basic face completeness/visibility checks. Recognition
+    remains responsible for stricter embedding quality.
     """
     if detection.confidence < min_confidence:
         return False
@@ -29,7 +31,25 @@ def passes_face_quality_gate(
     if width < min_box_size or height < min_box_size:
         return False
 
-    landmarks = detection.extra.get("yunet_landmarks")
+    extra = detection.extra
+
+    mean_brightness = extra.get("face_mean_brightness")
+    if mean_brightness is not None:
+        try:
+            if float(mean_brightness) < min_brightness:
+                return False
+        except (TypeError, ValueError):
+            return False
+
+    contrast = extra.get("face_contrast")
+    if contrast is not None:
+        try:
+            if float(contrast) < min_contrast:
+                return False
+        except (TypeError, ValueError):
+            return False
+
+    landmarks = extra.get("yunet_landmarks")
     if landmarks is None:
         return True
 
@@ -48,8 +68,8 @@ def passes_face_quality_gate(
     left_mouth = (values[8], values[9])
     points = (right_eye, left_eye, nose, right_mouth, left_mouth)
 
-    margin_x = 0.05 * width
-    margin_y = 0.05 * height
+    margin_x = 0.12 * width
+    margin_y = 0.12 * height
     for px, py in points:
         if px < x1 - margin_x or px > x2 + margin_x:
             return False
@@ -61,36 +81,18 @@ def passes_face_quality_gate(
 
     eye_gap = distance(right_eye, left_eye)
     mouth_gap = distance(right_mouth, left_mouth)
-    if eye_gap < 0.08 * width or mouth_gap < 0.05 * width:
+    if eye_gap < 0.05 * width or mouth_gap < 0.03 * width:
         return False
 
-    eye_mid_x = (right_eye[0] + left_eye[0]) * 0.5
     eye_mid_y = (right_eye[1] + left_eye[1]) * 0.5
-    mouth_mid_x = (right_mouth[0] + left_mouth[0]) * 0.5
     mouth_mid_y = (right_mouth[1] + left_mouth[1]) * 0.5
 
-    if nose[1] <= eye_mid_y:
+    # Basic vertical face structure only. No strict yaw/roll/offset checks.
+    if nose[1] < eye_mid_y - (0.05 * height):
         return False
-    if mouth_mid_y <= eye_mid_y + (0.12 * height):
+    if mouth_mid_y < eye_mid_y + (0.05 * height):
         return False
-    if mouth_mid_y <= nose[1] + (0.03 * height):
-        return False
-
-    eye_angle = math.degrees(
-        math.atan2(
-            right_eye[1] - left_eye[1],
-            right_eye[0] - left_eye[0],
-        )
-    )
-    if abs(eye_angle) > 20.0:
-        return False
-
-    nose_offset = abs(nose[0] - eye_mid_x) / max(eye_gap, 1.0)
-    if nose_offset > 0.55:
-        return False
-
-    mouth_offset = abs(mouth_mid_x - eye_mid_x) / max(eye_gap, 1.0)
-    if mouth_offset > 0.70:
+    if mouth_mid_y < nose[1] - (0.02 * height):
         return False
 
     return True
