@@ -27,6 +27,7 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
 from slave.processes.worker.models.face.pt.face_pt_detector import FacePtDetector
 from slave.processes.worker.face.face_controller import FaceController
+from slave.processes.worker.face.face_quality import passes_face_quality_gate
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
 
@@ -98,21 +99,13 @@ class FacePtWorker:
     def _process_frame(self, frame) -> None:
         detections = self._detector.detect(frame.image)
 
-        # Match the reference face-quality filters before tracking/event
-        # creation: reject weak detections and faces too small to produce
-        # a useful recognition crop.
+        # Match the shared face-quality filters before tracking/event
+        # creation. Keep the existing embedding visibility check so
+        # partially occluded faces remain excluded for standalone PT.
         quality_detections = []
         for detection in detections:
-            x1, y1, x2, y2 = detection.bbox
-            box_w = max(0.0, x2 - x1)
-            box_h = max(0.0, y2 - y1)
-            if detection.confidence < 0.60:
+            if not passes_face_quality_gate(detection):
                 continue
-            if box_w < 50.0 or box_h < 50.0:
-                continue
-            # Events require a complete, usable face from the reference
-            # YuNet/SFace validation. Partially occluded faces (for
-            # example, a person hidden behind a laptop) are ignored.
             if not bool(detection.extra.get("face_visible", False)):
                 continue
             quality_detections.append(detection)
