@@ -438,7 +438,7 @@ class FaceEmbedder:
             # horizontal boundary sits above the mouth, the lower face is
             # likely hidden by a monitor/laptop.
             points = np.asarray(landmark_face[4:14], dtype=np.float32).reshape(5, 2)
-            mouth_y = float((points[6, 1] + points[8, 1]) * 0.5)
+            mouth_y = float((points[3, 1] + points[4, 1]) * 0.5)
             relative_mouth_y = (mouth_y - y1) / max(1.0, float(y2 - y1))
 
             if (
