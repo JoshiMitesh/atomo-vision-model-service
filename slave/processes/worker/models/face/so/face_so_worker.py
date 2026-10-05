@@ -84,6 +84,15 @@ class FaceSoWorker:
     def _process_frame(self, frame) -> None:
         detections = self._detector.detect(frame.image)
 
+        # Reference quality gate: only usable faces create media/events.
+        detections = [
+            detection for detection in detections
+            if detection.confidence >= 0.60
+            and (detection.bbox[2] - detection.bbox[0]) >= 50.0
+            and (detection.bbox[3] - detection.bbox[1]) >= 50.0
+            and bool(detection.extra.get("face_visible", True))
+        ]
+
         object_key = url = None
         annotated = None
         if detections:
