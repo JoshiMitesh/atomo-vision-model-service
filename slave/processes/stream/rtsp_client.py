@@ -23,18 +23,6 @@ _FFMPEG_OPTIONS = (
     "reorder_queue_size;0|"
     "threads;1"
 )
-_FFMPEG_OPTIONS = (
-    "rtsp_transport;tcp|"
-    "fflags;nobuffer|"
-    "flags;low_delay|"
-    "max_delay;0|"
-    "buffer_size;65536|"
-    "analyzeduration;1000000|"
-    "probesize;1000000|"
-    "reorder_queue_size;0|"
-    "fflags;discardcorrupt|"
-    "threads;1"
-)
 
 
 class RtspClient:
@@ -55,38 +43,25 @@ class RtspClient:
         if not ok:
             self._last_error = "OpenCV could not open RTSP stream"
         return ok
-        ok = self._cap.isOpened()
-        if not ok:
-            self._last_error = "OpenCV could not open RTSP stream"
-        return ok
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         if self._cap is None:
             self._last_error = "video capture is not initialized"
-            self._last_error = "video capture is not initialized"
             return False, None
-        # grab() is lighter than retrieve() and lets us skip expensive
-        # decode work for stale frames. This matches the reference script's
-        # low-CPU pattern: only decode every Nth frame instead of decoding
-        # every RTSP packet the camera sends.
+
+        # One grab advances to the next packet/frame. retrieve() decodes the
+        # frame only when this frame is selected by decode_every_n_frames.
         if not self._cap.grab():
             self._last_error = "OpenCV grab() failed"
             return False, None
+
         self._read_counter += 1
         if self._read_counter % self._decode_every_n_frames != 0:
             return True, None
 
-        if not self._cap.grab():
-            self._last_error = "OpenCV grab() failed"
-            return False, None
-
         ok, frame = self._cap.retrieve()
         if not ok or frame is None:
-            # Corrupt H.264 packets can make FFmpeg fail a single frame
-            # without the entire RTSP stream being dead. Treat that as a
-            # dropped frame so we do not reconnect the whole stream on
-            # every bad packet. Real connection loss still triggers the
-            # grab() failure path below.
+            # A corrupt H.264 packet should not force a full RTSP reconnect.
             self._last_error = "OpenCV retrieve() failed; skipping corrupt frame"
             return True, None
 
