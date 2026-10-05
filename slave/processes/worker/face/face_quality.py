@@ -10,17 +10,17 @@ from slave.models.detection import Detection
 def passes_face_quality_gate(
     detection: Detection,
     *,
-    min_confidence: float = 0.60,
-    min_box_size: float = 50.0,
-    min_brightness: float = 18.0,
-    min_contrast: float = 8.0,
+    min_confidence: float = 0.75,
+    min_box_size: float = 80.0,
+    min_brightness: float = 28.0,
+    min_contrast: float = 14.0,
 ) -> bool:
-    """Apply a moderate face-quality gate before tracking.
+    """Accept only clean, frontal, recognition-quality face crops.
 
-    The gate intentionally avoids strict pose checks so normal frontal and
-    moderately angled faces remain detectable. YuNet landmark geometry is
-    used only for basic face completeness/visibility checks. Recognition
-    remains responsible for stricter embedding quality.
+    Detection is deliberately stricter than a generic face detector here.
+    Side profiles, strong yaw/roll, downward/upward-looking poses, weak
+    facial geometry, heavy occlusion and low-detail/motion-blurred crops must
+    never enter tracking, clustering or the recognition gallery.
     """
     if detection.confidence < min_confidence:
         return False
@@ -81,18 +81,46 @@ def passes_face_quality_gate(
 
     eye_gap = distance(right_eye, left_eye)
     mouth_gap = distance(right_mouth, left_mouth)
-    if eye_gap < 0.05 * width or mouth_gap < 0.03 * width:
+    # A recognition crop must contain both eyes with useful separation.
+    # Small eye gaps are a strong signal of a side/three-quarter profile.
+    if eye_gap < 0.18 * width or mouth_gap < 0.08 * width:
         return False
 
+    eye_mid_x = (right_eye[0] + left_eye[0]) * 0.5
     eye_mid_y = (right_eye[1] + left_eye[1]) * 0.5
+    nose_x, nose_y = nose
+    mouth_mid_x = (right_mouth[0] + left_mouth[0]) * 0.5
     mouth_mid_y = (right_mouth[1] + left_mouth[1]) * 0.5
+    face_mid_x = (x1 + x2) * 0.5
 
-    # Basic vertical face structure only. No strict yaw/roll/offset checks.
-    if nose[1] < eye_mid_y - (0.05 * height):
+    # Reject strong yaw: landmarks must remain close to the face center.
+    if abs(eye_mid_x - face_mid_x) > 0.12 * width:
         return False
-    if mouth_mid_y < eye_mid_y + (0.05 * height):
+    if abs(nose_x - eye_mid_x) > 0.10 * width:
         return False
-    if mouth_mid_y < nose[1] - (0.02 * height):
+    if abs(mouth_mid_x - eye_mid_x) > 0.12 * width:
+        return False
+
+    # Reject rolled/tilted faces.
+    eye_dx = abs(left_eye[0] - right_eye[0])
+    eye_dy = abs(left_eye[1] - right_eye[1])
+    if eye_dx < 1e-6 or eye_dy / eye_dx > 0.22:
+        return False
+
+    # Strict vertical geometry rejects faces looking substantially up/down.
+    eye_to_nose = (nose_y - eye_mid_y) / max(height, 1.0)
+    nose_to_mouth = (mouth_mid_y - nose_y) / max(height, 1.0)
+    eye_to_mouth = (mouth_mid_y - eye_mid_y) / max(height, 1.0)
+    if not 0.16 <= eye_to_nose <= 0.42:
+        return False
+    if not 0.08 <= nose_to_mouth <= 0.28:
+        return False
+    if not 0.28 <= eye_to_mouth <= 0.62:
+        return False
+
+    # Require a complete, reasonably shaped face crop.
+    face_aspect = width / max(height, 1.0)
+    if not 0.62 <= face_aspect <= 1.25:
         return False
 
     return True
