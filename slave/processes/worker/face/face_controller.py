@@ -10,6 +10,7 @@ import numpy as np
 from slave.logging.logger import get_logger
 from slave.models.detection import Detection
 from slave.utils.time_utils import monotonic
+from slave.processes.worker.face.face_quality import passes_face_quality_gate
 
 DetectorFactory = Callable[[], object]
 BBox = Tuple[float, float, float, float]
@@ -76,6 +77,12 @@ class FaceController:
             return []
 
         detections = self._maybe_infer(frame_image)
+
+        detections = [
+            detection
+            for detection in detections
+            if passes_face_quality_gate(detection)
+        ]
         self._new_track_ids = []
         self._new_face_events = []
 
