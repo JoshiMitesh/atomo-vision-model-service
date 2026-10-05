@@ -127,7 +127,6 @@ class FaceYunetWorker:
             if detection.confidence >= 0.60
             and (detection.bbox[2] - detection.bbox[0]) >= 50.0
             and (detection.bbox[3] - detection.bbox[1]) >= 50.0
-            and bool(detection.extra.get("face_visible", True))
         ]
 
         stage_start = time.monotonic()
