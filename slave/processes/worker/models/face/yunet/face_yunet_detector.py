@@ -55,6 +55,21 @@ class FaceYunetDetector:
             x, y, w, h = (float(v) for v in face[:4])
             confidence = float(face[-1])
 
+            x1 = max(0, int(round(x)))
+            y1 = max(0, int(round(y)))
+            x2 = min(width, int(round(x + w)))
+            y2 = min(height, int(round(y + h)))
+
+            extra = {"yunet_landmarks": face[4:14].tolist()}
+
+            # Calculate quality metrics from the detected face crop so the
+            # shared face-quality gate can reject very dark/flat detections.
+            if x2 > x1 and y2 > y1:
+                crop = frame[y1:y2, x1:x2]
+                gray = cv.cvtColor(crop, cv.COLOR_BGR2GRAY)
+                extra["face_mean_brightness"] = float(np.mean(gray))
+                extra["face_contrast"] = float(np.std(gray))
+
             detections.append(
                 Detection(
                     class_id=CLASS_ID,
@@ -62,7 +77,7 @@ class FaceYunetDetector:
                     confidence=confidence,
                     bbox=(x, y, x + w, y + h),
                     model_name=self._model_name,
-                    extra={"yunet_landmarks": face[4:14].tolist()},
+                    extra=extra,
                 )
             )
 
