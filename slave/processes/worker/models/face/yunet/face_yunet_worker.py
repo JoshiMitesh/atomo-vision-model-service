@@ -27,6 +27,7 @@ from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
+from slave.processes.worker.face.face_quality import passes_face_quality_gate
 from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
 from slave.processes.worker.models.face.yunet.face_yunet_detector import FaceYunetDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
@@ -110,8 +111,13 @@ class FaceYunetWorker:
 
     def _process_frame(self, frame) -> None:
         detections = self._detector.detect(frame.image)
+        quality_detections = [
+            detection
+            for detection in detections
+            if passes_face_quality_gate(detection)
+        ]
 
-        self._face_tracker.track_detections(detections)
+        self._face_tracker.track_detections(quality_detections)
 
         # Publish/upload only when a face track first appears. A continuously
         # visible face therefore produces one event and one MinIO face crop.
