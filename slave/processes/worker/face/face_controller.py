@@ -76,6 +76,16 @@ class FaceController:
             return []
 
         detections = self._maybe_infer(frame_image)
+
+        # Reference face-quality gate. A detection below 0.60 or below
+        # 50x50 is not a usable recognition/event face.
+        detections = [
+            detection for detection in detections
+            if detection.confidence >= 0.60
+            and (detection.bbox[2] - detection.bbox[0]) >= 50.0
+            and (detection.bbox[3] - detection.bbox[1]) >= 50.0
+            and bool(detection.extra.get("face_visible", True))
+        ]
         self._new_track_ids = []
         self._new_face_events = []
 
