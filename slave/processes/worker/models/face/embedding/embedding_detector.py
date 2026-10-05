@@ -23,7 +23,22 @@ class EmbeddingDetector:
         self._embedder = embedder
 
     def detect(self, frame: np.ndarray) -> List[Detection]:
-        return self._embedder.attach(frame, self._detector.detect(frame))
+        detections = self._detector.detect(frame)
+        enriched = self._embedder.attach(frame, detections)
+
+        # Face embeddings are the quality boundary for face recognition.
+        # If the detector finds only an upper-face/occluded face, FaceEmbedder
+        # marks it as face_visible=False. Do not publish such detections:
+        # otherwise they can become evidence photos and unknown clusters even
+        # though they are not suitable for recognition.
+        if not self._embedder.available:
+            return enriched
+
+        return [
+            detection
+            for detection in enriched
+            if detection.extra.get("face_visible") is True
+        ]
 
     def release(self) -> None:
         try:
