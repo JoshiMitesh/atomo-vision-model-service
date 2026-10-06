@@ -32,6 +32,7 @@ _MODEL_IMPL_DIR = {
     (".pt",): "pt",
     (".nb",): "nb",
     (".so",): "so",
+    (".onnx",): "onnx",
 }
 
 
@@ -39,7 +40,7 @@ _MODEL_IMPL_DIR = {
 class ResolvedModel:
     model_type: str
     model_extension: str
-    impl_subdir: str          # e.g. "pt" | "nb" | "so"
+    impl_subdir: str          # e.g. "pt" | "nb" | "so" | "onnx"
     model_config_path: str    # e.g. config/models/person.yaml
 
 

@@ -7,10 +7,10 @@
 # approval_status are normally auto-generated; entered manually here
 # for now). Set uniquely per physical device before deploying.
 device_id: 32bf38de-4145-4cab-839b-65d5156c22cc
-device_name: savan-patel-victus
-password: '190325'
+device_name: mitesh
+password: '2003'
 device_role: slave
-ip: 192.168.1.17
+ip: 192.168.1.38
 dns_name: atomo-master.local
 mac_id: '24:fb:e3:c2:a0:1a'
 serial_no: SN-0001
@@ -18,7 +18,7 @@ status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.31
+  host: 192.168.1.38
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
@@ -58,12 +58,12 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.31:9000
+  endpoint: 192.168.1.38:9000
   access_key: minioadmin
   secret_key: minioadmin
-  bucket: numberplate
+  bucket: face
   secure: false
-  enabled: false # skip MinIO frame/video uploads for now — set back to true when needed
+  enabled: True # skip MinIO frame/video uploads for now — set back to true when needed
 
 video:
   segment_seconds: 30

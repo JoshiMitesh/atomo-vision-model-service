@@ -25,18 +25,22 @@ embedding:
   # resolved flat against processes/worker/models/face/.
   enabled: true
   model_name: face_recognition         # published as "embedding_model"
-  model_file: face_recognition_sface_2021dec_int8.onnx
-  # YuNet is run on each padded face crop only to recover the 5
-  # landmarks SFace alignment needs (face.nb/.pt/.so output a bbox
-  # only). Required: unaligned bbox crops give embeddings that don't
-  # match aligned ones (cosine ~0.2-0.6), so there is no fallback --
+  # YuNet landmarks are used for SFace alignment. When the job model
+  # is YuNet, its detected landmarks are reused directly; PT/NB/SO face
+  # detectors fall back to the configured YuNet landmark model.
+  # Required: unaligned bbox crops give embeddings that don't
+  #  # match aligned ones (cosine ~0.2-0.6), so there is no fallback --
   # a face with no landmarks gets embedding: null.
-  landmark_model_file: face_detection_yunet_2023mar_int8.onnx
   min_face_px: 20            # smaller faces get embedding: null
   min_det_conf: 0.50          # lower-confidence faces get embedding: null
   max_faces_per_frame: 10    # largest faces embedded first; rest get null
   l2_normalize: false        # false = raw SFace output (what the reference DB stores)
   decimals: 6
+
+yunet:
+  score_thresh: 0.85
+  nms_thresh: 0.30
+  top_k: 5000
 
 trigger:
   # Keep face detection off by default. This matches the reference
