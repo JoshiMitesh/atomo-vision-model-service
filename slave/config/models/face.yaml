@@ -31,14 +31,14 @@ embedding:
   # Required: unaligned bbox crops give embeddings that don't
   #  # match aligned ones (cosine ~0.2-0.6), so there is no fallback --
   # a face with no landmarks gets embedding: null.
-  min_face_px: 20            # smaller faces get embedding: null
-  min_det_conf: 0.50          # lower-confidence faces get embedding: null
+  min_face_px: 16            # allow smaller but still usable faces; tiny faces remain rejected
+  min_det_conf: 0.35          # allow angled/partially visible faces with weaker detector confidence
   max_faces_per_frame: 10    # largest faces embedded first; rest get null
   l2_normalize: false        # false = raw SFace output (what the reference DB stores)
   decimals: 6
 
 yunet:
-  score_thresh: 0.85
+  score_thresh: 0.72
   nms_thresh: 0.30
   top_k: 5000
 
