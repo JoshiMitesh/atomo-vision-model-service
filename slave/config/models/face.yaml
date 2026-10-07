@@ -38,7 +38,7 @@ embedding:
   decimals: 6
 
 yunet:
-  score_thresh: 0.85
+  score_thresh: 0.80
   nms_thresh: 0.30
   top_k: 5000
 
