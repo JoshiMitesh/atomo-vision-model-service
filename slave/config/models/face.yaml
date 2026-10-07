@@ -10,7 +10,7 @@ num_classes: 1
 listsize: 5
 
 thresholds:
-  obj_thresh: 0.55
+  obj_thresh: 0.45
   nms_thresh: 0.50
 
 input:
@@ -41,7 +41,7 @@ embedding:
   landmark_top_k: 5000
 
 yunet:
-  score_thresh: 0.70
+  score_thresh: 0.45
   nms_thresh: 0.30
   top_k: 5000
 
