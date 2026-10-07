@@ -130,6 +130,7 @@ class FaceYunetWorker:
             live_telemetry = group_detections(
                 quality_detections,
                 self._job,
+                tracking_id=None,
             )
             live_result = DetectionResult(
                 job_id=self._job.job_id,
