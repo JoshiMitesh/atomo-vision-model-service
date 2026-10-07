@@ -28,7 +28,6 @@ from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
-from slave.processes.worker.face.face_quality import passes_face_quality_gate
 from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
 from slave.processes.worker.models.face.yunet.face_yunet_detector import FaceYunetDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
