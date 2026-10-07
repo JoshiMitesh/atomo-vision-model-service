@@ -122,21 +122,48 @@ class FaceYunetWorker:
         # Publish/upload only when a face track first appears. A continuously
         # visible face therefore produces one event and one MinIO face crop.
         for detection, track_id in self._face_tracker.new_face_events:
+            # Publishing the detection must not depend on MinIO succeeding.
+            # A temporary crop-upload failure should remove the image, not
+            # the face event itself.
+            object_key = None
+            url = None
+            crop_width = None
+            crop_height = None
+
             crop = self._crop_face(frame.image, detection.bbox)
-            if crop is None:
-                continue
+            if crop is not None:
+                try:
+                    upload_info = self._frame_uploader.upload_face_crop(
+                        self._worker_key,
+                        frame.frame_id,
+                        track_id,
+                        crop,
+                    )
+                    if upload_info is not None:
+                        object_key, url = upload_info
+                        crop_height, crop_width = (int(v) for v in crop.shape[:2])
+                    else:
+                        self._log.warning(
+                            "face crop upload returned no result; publishing detection "
+                            "without media frame_id=%s track_id=%s",
+                            frame.frame_id,
+                            track_id,
+                        )
+                except Exception:
+                    self._log.exception(
+                        "face crop upload failed; publishing detection without media "
+                        "frame_id=%s track_id=%s",
+                        frame.frame_id,
+                        track_id,
+                    )
+            else:
+                self._log.warning(
+                    "face crop was invalid; publishing detection without media "
+                    "frame_id=%s track_id=%s",
+                    frame.frame_id,
+                    track_id,
+                )
 
-            upload_info = self._frame_uploader.upload_face_crop(
-                self._worker_key,
-                frame.frame_id,
-                track_id,
-                crop,
-            )
-            if upload_info is None:
-                continue
-
-            object_key, url = upload_info
-            crop_height, crop_width = (int(v) for v in crop.shape[:2])
             telemetry = group_detections(
                 [detection],
                 self._job,
