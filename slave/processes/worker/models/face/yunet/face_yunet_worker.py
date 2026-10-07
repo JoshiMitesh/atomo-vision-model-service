@@ -114,14 +114,12 @@ class FaceYunetWorker:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
+        # YuNet detections are the event source. Do not apply an additional
+        # face-quality/landmark gate here: every detector hit is a face event.
         detections = self._detector.detect(frame.image)
-        quality_detections = [
-            detection
-            for detection in detections
-            if passes_face_quality_gate(detection)
-        ]
+        quality_detections = detections
 
-        self._face_tracker.track_detections(quality_detections)
+        self._face_tracker.track_detections(detections)
 
         # Keep the live UI overlay current without turning every video frame
         # into a persisted Master event or an email alert.
@@ -162,7 +160,10 @@ class FaceYunetWorker:
 
         # Publish/upload only when a face track first appears. A continuously
         # visible face therefore produces one event and one MinIO face crop.
-        for detection, track_id in self._face_tracker.new_face_events:
+        # Emit detector hits on every processed frame. The stream reader
+        # already samples the camera, so this produces one event per sampled
+        # frame rather than tracker-only first sightings.
+        for detection in detections:
             # Publishing the detection must not depend on MinIO succeeding.
             # A temporary crop-upload failure should remove the image, not
             # the face event itself.
