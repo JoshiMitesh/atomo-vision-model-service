@@ -43,8 +43,24 @@ class DetectionResult:
     url: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
+    # Every saved face crop in this frame ({object_key, url, width,
+    # height}); only set by workers that upload several crops per
+    # message (.nb/.so face workers). media.object_key/url then point
+    # at the first crop. Omitted from media entirely when None.
+    crops: Optional[List[dict]] = None
+    # Camera location (from the job); null when the job has none.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     def to_dict(self) -> dict:
+        media = {
+            "object_key": self.object_key,
+            "url": self.url,
+            "width": self.width,
+            "height": self.height,
+        }
+        if self.crops is not None:
+            media["crops"] = self.crops
         return {
             "schema_version": SCHEMA_VERSION,
             "job_id": self.job_id,
@@ -62,14 +78,11 @@ class DetectionResult:
                     "camera_name": self.camera_name,
                     "camera_stream": self.camera_stream,
                     "status": self.camera_status,
+                    "latitude": self.latitude,
+                    "longitude": self.longitude,
                 },
             },
-            "media": {
-                "object_key": self.object_key,
-                "url": self.url,
-                "width": self.width,
-                "height": self.height,
-            },
+            "media": media,
             "telemetry": [t.to_dict() for t in self.telemetry],
         }
 

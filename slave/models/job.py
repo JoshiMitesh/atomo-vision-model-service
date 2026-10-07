@@ -45,6 +45,10 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 
+def _optional_float(value) -> Optional[float]:
+    return None if value is None else float(value)
+
+
 @dataclass(frozen=True)
 class ModelAssignment:
     """One model Master has assigned to this job's camera."""
@@ -87,6 +91,11 @@ class JobConfig:
     zone_id: str
     zone_name: str
     model_assignments: Tuple[ModelAssignment, ...]
+    # Optional camera location, Master-supplied alongside the other
+    # camera_* identity fields. Only surfaced in the device health
+    # message's cameras[] entry (null when the job carries none).
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     @property
     def primary_assignment(self) -> ModelAssignment:
@@ -134,7 +143,7 @@ class JobConfig:
         return assignment.model_name if assignment else None
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "job_id": self.job_id,
             "branch_id": self.branch_id,
             "branch_name": self.branch_name,
@@ -145,6 +154,13 @@ class JobConfig:
             "zone_name": self.zone_name,
             "model_assignments": [a.to_dict() for a in self.model_assignments],
         }
+        # Only written when present, so jobs.yaml entries without a
+        # camera location stay exactly as they were.
+        if self.latitude is not None:
+            result["latitude"] = self.latitude
+        if self.longitude is not None:
+            result["longitude"] = self.longitude
+        return result
 
     @staticmethod
     def from_dict(raw: dict) -> "JobConfig":
@@ -159,6 +175,8 @@ class JobConfig:
             zone_id=str(raw["zone_id"]),
             zone_name=str(raw["zone_name"]),
             model_assignments=tuple(ModelAssignment.from_dict(a) for a in assignments_raw),
+            latitude=_optional_float(raw.get("latitude")),
+            longitude=_optional_float(raw.get("longitude")),
         )
 
     def config_changed(self, other: "JobConfig") -> bool:

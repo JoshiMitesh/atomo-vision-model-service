@@ -12,11 +12,17 @@ from typing import Optional
 
 from slave.logging.logger import get_logger
 from slave.processes.device.command_handler import execute_command
+from slave.processes.device.runtime_status import RuntimeStatus
 
 log = get_logger(__name__)
 
 
-def build_command_handler(device_name: str, jobs_yaml_path: Optional[str] = None, ip: str = ""):
+def build_command_handler(
+    device_name: str,
+    jobs_yaml_path: Optional[str] = None,
+    ip: str = "",
+    runtime: Optional[RuntimeStatus] = None,
+):
     """Return an async NATS message callback bound to this device_name —
     used for logging context; jobs_yaml_path/ip are passed through to
     execute_command() so get_status can report live running_cameras/
@@ -32,7 +38,7 @@ def build_command_handler(device_name: str, jobs_yaml_path: Optional[str] = None
 
         log.info("device_name=%s received command: %s", device_name, cmd)
         try:
-            result = execute_command(cmd, jobs_yaml_path, device_name, ip)
+            result = execute_command(cmd, jobs_yaml_path, device_name, ip, runtime)
         except Exception:
             log.exception("command execution failed for device_name=%s", device_name)
             result = {"status": "error", "op": cmd.get("op"), "detail": "internal error"}

@@ -15,6 +15,7 @@ import json
 from typing import Optional
 
 from slave.logging.logger import get_logger
+from slave.processes.device.runtime_status import RuntimeStatus
 from slave.processes.device.telemetry import sample_telemetry
 
 log = get_logger(__name__)
@@ -46,6 +47,7 @@ async def telemetry_loop(
     jobs_yaml_path: Optional[str],
     device_name: str,
     ip: str,
+    runtime: Optional[RuntimeStatus] = None,
 ) -> None:
     """Never raises out of this loop — a publish failure here must not
     take down the device agent's other loop (the command subscription)
@@ -56,7 +58,7 @@ async def telemetry_loop(
     while not stop_event.is_set():
         try:
             if nc.is_connected:
-                payload = sample_telemetry(jobs_yaml_path, device_name, ip)
+                payload = sample_telemetry(jobs_yaml_path, device_name, ip, runtime)
                 await nc.publish(subject, json.dumps(payload).encode())
             else:
                 log.warning("device NATS connection down, skipping telemetry tick")
