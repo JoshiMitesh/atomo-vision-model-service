@@ -32,7 +32,7 @@ from slave.processes.worker.models.face.embedding.face_image_enhancer import enh
 log = get_logger(__name__)
 
 # These match the reference YuNet configuration.
-_LANDMARK_SCORE_THRESH = 0.90
+_LANDMARK_SCORE_THRESH = 0.85
 _LANDMARK_NMS_THRESH = 0.30
 _LANDMARK_TOP_K = 5000
 
