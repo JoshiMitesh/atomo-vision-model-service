@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 import cv2
 
@@ -79,6 +80,9 @@ class FaceYunetWorker:
         self._frame_reader = FrameReader(worker_key, job.camera_stream)
 
         self._stop_event = threading.Event()
+        self._last_live_publish = 0.0
+        self._live_publish_interval = 0.20
+
         self._thread = threading.Thread(
             target=self._run,
             name=f"face-yunet-{worker_key}",
@@ -118,6 +122,42 @@ class FaceYunetWorker:
         ]
 
         self._face_tracker.track_detections(quality_detections)
+
+        # Keep the live UI overlay current without turning every video frame
+        # into a persisted Master event or an email alert.
+        now = time.monotonic()
+        if quality_detections and now - self._last_live_publish >= self._live_publish_interval:
+            live_telemetry = group_detections(
+                quality_detections,
+                self._job,
+            )
+            live_result = DetectionResult(
+                job_id=self._job.job_id,
+                frame_id=frame.frame_id,
+                occurred_at=ist_now_iso(),
+                device_name=self._identity.device_name,
+                branch_id=self._job.branch_id,
+                branch_name=self._job.branch_name,
+                device_id=self._identity.device_id,
+                zone_id=self._job.zone_id,
+                zone_name=self._job.zone_name,
+                camera_id=self._job.camera_id,
+                camera_name=self._job.camera_name,
+                camera_stream=self._job.camera_stream,
+                camera_status=self._frame_reader.get_status(),
+                latitude=self._job.latitude,
+                longitude=self._job.longitude,
+                telemetry=live_telemetry,
+                object_key=None,
+                url=None,
+                width=None,
+                height=None,
+            )
+            self._detection_publisher.publish_live_detection(
+                live_result,
+                self._job.camera_id,
+            )
+            self._last_live_publish = now
 
         # Publish/upload only when a face track first appears. A continuously
         # visible face therefore produces one event and one MinIO face crop.
