@@ -99,7 +99,7 @@ def passes_face_quality_gate(
     # Reject strong yaw: landmarks must remain close to the face center.
     if abs(eye_mid_x - face_mid_x) > 0.22 * width:
         return False
-    if abs(nose_x - eye_mid_x) > 0.18 * width:
+    if abs(nose_x - eye_mid_x) > 0.20 * width:
         return False
     if abs(mouth_mid_x - eye_mid_x) > 0.20 * width:
         return False
@@ -107,18 +107,18 @@ def passes_face_quality_gate(
     # Reject rolled/tilted faces.
     eye_dx = abs(left_eye[0] - right_eye[0])
     eye_dy = abs(left_eye[1] - right_eye[1])
-    if eye_dx < 1e-6 or eye_dy / eye_dx > 0.30:
+    if eye_dx < 1e-6 or eye_dy / eye_dx > 0.40:
         return False
 
     # Strict vertical geometry rejects faces looking substantially up/down.
     eye_to_nose = (nose_y - eye_mid_y) / max(height, 1.0)
     nose_to_mouth = (mouth_mid_y - nose_y) / max(height, 1.0)
     eye_to_mouth = (mouth_mid_y - eye_mid_y) / max(height, 1.0)
-    if not 0.14 <= eye_to_nose <= 0.44:
+    if not 0.12 <= eye_to_nose <= 0.48:
         return False
-    if not 0.07 <= nose_to_mouth <= 0.28:
+    if not 0.05 <= nose_to_mouth <= 0.32:
         return False
-    if not 0.27 <= eye_to_mouth <= 0.62:
+    if not 0.24 <= eye_to_mouth <= 0.66:
         return False
 
     # Require a complete, reasonably shaped face crop.

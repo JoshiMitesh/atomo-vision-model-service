@@ -18,7 +18,7 @@ partial per-assignment diffing.
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Protocol
+from typing import Dict, List, Optional, Protocol, Tuple
 
 from slave.logging.logger import get_logger
 
@@ -36,15 +36,66 @@ class WorkerManager:
         self._workers: Dict[str, List[Worker]] = {}
         self._lock = threading.Lock()
 
-    def start_worker(self, job_id: str, workers: List[Worker]) -> None:
+    def start_worker(self, job_id: str, workers: List[Worker]) -> List[Tuple[Worker, Exception]]:
+        """Start every worker for job_id independently: one worker whose
+        start() raises is dropped and reported, the rest still start.
+        Returns the (worker, exception) pairs that failed to start.
+        """
         with self._lock:
             if job_id in self._workers:
                 log.warning("worker(s) already running for job_id=%s, refusing duplicate start", job_id)
-                return
+                return []
             self._workers[job_id] = list(workers)
+        failures: List[Tuple[Worker, Exception]] = []
         for worker in workers:
-            worker.start()
-        log.info("%d worker(s) started for job_id=%s", len(workers), job_id)
+            try:
+                worker.start()
+            except Exception as exc:
+                log.exception("job_id=%s: a worker failed to start, continuing with the others", job_id)
+                failures.append((worker, exc))
+                try:
+                    worker.stop()  # release anything it half-acquired
+                except Exception:
+                    pass
+        if failures:
+            failed_ids = {id(w) for w, _ in failures}
+            with self._lock:
+                remaining = [w for w in self._workers.get(job_id, []) if id(w) not in failed_ids]
+                if remaining:
+                    self._workers[job_id] = remaining
+                else:
+                    self._workers.pop(job_id, None)
+        log.info("%d/%d worker(s) started for job_id=%s", len(workers) - len(failures), len(workers), job_id)
+        return failures
+
+    def replace_worker(self, job_id: str, old: Worker, new: Worker) -> Optional[Exception]:
+        """Swap one dead worker for a freshly built one and start it.
+        Returns None on success, or the exception if the new worker
+        failed to start (it is then dropped; siblings are untouched).
+        """
+        with self._lock:
+            current = self._workers.get(job_id)
+            if current is None or old not in current:
+                return RuntimeError("job or worker no longer present")
+            current[current.index(old)] = new
+        try:
+            old.stop()
+        except Exception:
+            log.exception("job_id=%s: error stopping dead worker before restart", job_id)
+        try:
+            new.start()
+        except Exception as exc:
+            log.exception("job_id=%s: restarted worker failed to start", job_id)
+            try:
+                new.stop()
+            except Exception:
+                pass
+            with self._lock:
+                current = self._workers.get(job_id)
+                if current is not None and new in current:
+                    current.remove(new)
+            return exc
+        return None
 
     def stop_worker(self, job_id: str) -> None:
         with self._lock:
@@ -59,13 +110,13 @@ class WorkerManager:
                 log.exception("error stopping a worker for job_id=%s", job_id)
         log.info("%d worker(s) stopped for job_id=%s", len(workers), job_id)
 
-    def restart_worker(self, job_id: str, workers: List[Worker]) -> None:
+    def restart_worker(self, job_id: str, workers: List[Worker]) -> List[Tuple[Worker, Exception]]:
         """Stop all old workers for job_id and, if it was previously
         running, replace with the new configuration (used for CHANGED
         jobs).
         """
         self.stop_worker(job_id)
-        self.start_worker(job_id, workers)
+        return self.start_worker(job_id, workers)
 
     def is_running(self, job_id: str) -> bool:
         with self._lock:

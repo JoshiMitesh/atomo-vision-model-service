@@ -101,7 +101,12 @@ ocr:
   # start with "Unknown model".
   model_name: cct-s-v2-global-model
   interval_frames: 5       # run OCR at most every Nth frame per track
-  min_score: 0.70            # OCR results below this score are rejected outright
+  search_interval_frames: 1   # ...but every frame until a track has its first accepted read
+  # Raised from 0.70: on the cam06 test videos every correct read scored
+  # >= 0.93 while the wrong plates that still got through scored 0.78 or
+  # lower (a low-confidence read whose clipped/garbled characters happened
+  # to form a valid-looking plate).
+  min_score: 0.85            # OCR results below this score are rejected outright
   rectified_width_px: 320
   rectified_height_px: 80
   # Frames of accepted-read history kept per track for the
