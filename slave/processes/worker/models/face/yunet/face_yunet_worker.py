@@ -118,7 +118,7 @@ class FaceYunetWorker:
         detections = self._detector.detect(frame.image)
         quality_detections = detections
 
-        self._face_tracker.track_detections(detections)
+        tracked_detections = self._face_tracker.track_detections_with_ids(detections)
 
         # Keep the live UI overlay current without turning every video frame
         # into a persisted Master event or an email alert.
@@ -127,7 +127,9 @@ class FaceYunetWorker:
             live_telemetry = group_detections(
                 quality_detections,
                 self._job,
-                tracking_id=None,
+                tracking_id=(
+                    tracked_detections[0][1] if len(tracked_detections) == 1 else None
+                ),
             )
             live_result = DetectionResult(
                 job_id=self._job.job_id,
@@ -162,8 +164,7 @@ class FaceYunetWorker:
         # Emit detector hits on every processed frame. The stream reader
         # already samples the camera, so this produces one event per sampled
         # frame rather than tracker-only first sightings.
-        for detection_index, detection in enumerate(detections):
-            track_id = f"frame_{frame.frame_id}_face_{detection_index}"
+        for detection, track_id in tracked_detections:
             # Publishing the detection must not depend on MinIO succeeding.
             # A temporary crop-upload failure should remove the image, not
             # the face event itself.
