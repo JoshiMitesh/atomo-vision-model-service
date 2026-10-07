@@ -51,33 +51,40 @@ class ModelManager:
 
     def build_workers(self, job: JobConfig) -> List[object]:
         workers: List[object] = []
-        built_types: List[str] = []
+        built: List[tuple] = []
         if self._runtime_status is not None:
             self._runtime_status.reset_failures(job.job_id)
         for assignment in job.model_assignments:
-            try:
-                resolved: ResolvedModel = resolve(assignment, job.job_id, self._config_root)
-                worker_cls = self._registry.get(resolved.model_type, resolved.model_extension)
-                model_config = self._load_model_config(resolved.model_config_path)
-                worker = worker_factory.create_worker(
-                    job, assignment, resolved, worker_cls, model_config, self._services
-                )
-            except Exception as exc:
-                log.exception(
-                    "job %s: failed to build worker for model_type=%s, skipping this assignment",
-                    job.job_id,
-                    assignment.model_type,
-                )
-                if self._runtime_status is not None:
-                    self._runtime_status.record_failure(
-                        job.job_id, assignment.model_type, assignment.model_name, f"{type(exc).__name__}: {exc}"
-                    )
+            worker = self.build_one(job, assignment)
+            if worker is None:
                 continue
             workers.append(worker)
-            built_types.append(assignment.model_type)
+            built.append((worker, assignment.model_type, assignment.model_name))
         if self._runtime_status is not None:
-            self._runtime_status.job_built(job.job_id, built_types)
+            self._runtime_status.job_built(job.job_id, built)
         return workers
+
+    def build_one(self, job: JobConfig, assignment) -> Optional[object]:
+        """Build a single assignment's worker; None (and a recorded
+        failure) if it can't be built, so the job's other models are
+        never affected.
+        """
+        try:
+            resolved: ResolvedModel = resolve(assignment, job.job_id, self._config_root)
+            worker_cls = self._registry.get(resolved.model_type, resolved.model_extension)
+            model_config = self._load_model_config(resolved.model_config_path)
+            return worker_factory.create_worker(job, assignment, resolved, worker_cls, model_config, self._services)
+        except Exception as exc:
+            log.exception(
+                "job %s: failed to build worker for model_type=%s, skipping this assignment",
+                job.job_id,
+                assignment.model_type,
+            )
+            if self._runtime_status is not None:
+                self._runtime_status.record_failure(
+                    job.job_id, assignment.model_type, assignment.model_name, f"{type(exc).__name__}: {exc}"
+                )
+            return None
 
     @staticmethod
     def _load_model_config(path: str) -> dict:

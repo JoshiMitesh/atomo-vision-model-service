@@ -25,7 +25,12 @@ from slave.processes.worker.models.number_plate.plate_format import normalize_pl
 
 log = get_logger(__name__)
 
-PAD_RATIOS = (0.10, 0.20)  # small pad variance fixes clipped first/last chars
+# (horizontal, vertical) padding as a fraction of the detector box's width/
+# height. The detector box often clips the plate's last character, so the
+# crop is padded much more sideways than vertically (a plain 0.10/0.20 on
+# both axes dropped the final digit on small/far plates; more vertical
+# padding mostly just adds background that confuses the OCR).
+PAD_RATIOS = ((0.10, 0.10), (0.20, 0.20), (0.25, 0.10), (0.40, 0.15))
 
 
 class PlateOcr:
@@ -35,11 +40,12 @@ class PlateOcr:
     fast-plate-ocr installed at all.
     """
 
-    def __init__(self, model_name: str, pad_ratios: Tuple[float, ...] = PAD_RATIOS) -> None:
+    def __init__(self, model_name: str, pad_ratios=PAD_RATIOS) -> None:
         from fast_plate_ocr import LicensePlateRecognizer
 
         self._recognizer = LicensePlateRecognizer(model_name)
-        self._pad_ratios = tuple(pad_ratios)
+        # each entry: (pad_x, pad_y); a bare number pads both axes equally
+        self._pad_ratios = tuple((p, p) if isinstance(p, (int, float)) else tuple(p) for p in pad_ratios)
 
     def read_plate(
         self, gray_frame: np.ndarray, bbox: Tuple[float, float, float, float]
@@ -52,7 +58,7 @@ class PlateOcr:
         x1, y1, x2, y2 = (int(round(v)) for v in bbox)
         reads: List[Tuple[str, bool, float, str, str, float]] = []
         for pad in self._pad_ratios:
-            px, py = int(pad * (x2 - x1)), int(pad * (y2 - y1))
+            px, py = int(pad[0] * (x2 - x1)), int(pad[1] * (y2 - y1))
             crop = gray_frame[max(0, y1 - py):min(h, y2 + py), max(0, x1 - px):min(w, x2 + px)]
             if crop.size == 0:
                 continue
@@ -69,6 +75,7 @@ class PlateOcr:
         votes = Counter(r[0] for r in pool)
         best = max(votes, key=lambda k: (votes[k], max(r[2] for r in pool if r[0] == k)))
         conf = max(r[2] for r in pool if r[0] == best)
+
         return best, conf, bool(valid), reads
 
     def _run_ocr(self, img_gray: np.ndarray) -> Tuple[str, float]:

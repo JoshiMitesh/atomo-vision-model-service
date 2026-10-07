@@ -9,6 +9,7 @@ jobs:
     zone_name: office
     latitude: 23.0225
     longitude: 72.5714
+    location: Main Entrance, Ahmedabad
     model_assignments:
       - model_type: face
         model_name: face_detection_yunet_2023mar_int8.onnx
