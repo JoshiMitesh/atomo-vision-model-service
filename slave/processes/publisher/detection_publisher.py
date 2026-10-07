@@ -15,6 +15,25 @@ class DetectionPublisher:
         self._publisher = publisher # publisher is an instance of the Publisher class, which handles the actual NATS publishing
         self._subject = detection_subject # subject is the NATS subject to which detections will be published
 
+    def publish_live_detection(self, result: DetectionResult, camera_id: str) -> None:
+        """Publish a live-only detection packet for the frontend overlay.
+
+        This deliberately uses a separate detections.* subject so the Master
+        persistence/alert pipeline does not store or alert on every video frame.
+        """
+        if not result.has_detections or not camera_id:
+            return
+        message = build_detection_message(result)
+        subject = f"detections.live.{camera_id}"
+        try:
+            self._publisher.publish(subject, message)
+        except Exception:
+            log.exception(
+                "failed to publish live detection for job_id=%s frame_id=%s",
+                result.job_id,
+                result.frame_id,
+            )
+
     def publish_detection(self, result: DetectionResult) -> None:
         # Frames with nothing detected are never sent to the Master.
         if not result.has_detections:
