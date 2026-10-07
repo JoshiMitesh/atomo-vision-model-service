@@ -11,9 +11,9 @@ def passes_face_quality_gate(
     detection: Detection,
     *,
     min_confidence: float = 0.70,
-    min_box_size: float = 50.0,
-    min_brightness: float = 25.0,
-    min_contrast: float = 12.0,
+    min_box_size: float = 35.0,
+    min_brightness: float = 20.0,
+    min_contrast: float = 10.0,
 ) -> bool:
     """Accept clean, usable recognition-quality face crops with moderate pose tolerance.
 
@@ -49,9 +49,12 @@ def passes_face_quality_gate(
         except (TypeError, ValueError):
             return False
 
+    # Recognition events must have real facial geometry. A detector
+    # bbox without landmarks can be a head/occlusion/background false
+    # positive, so never allow it into the face event/gallery.
     landmarks = extra.get("yunet_landmarks")
     if landmarks is None:
-        return True
+        return False
 
     try:
         values = [float(value) for value in landmarks]
@@ -83,7 +86,7 @@ def passes_face_quality_gate(
     mouth_gap = distance(right_mouth, left_mouth)
     # A recognition crop must contain both eyes with useful separation.
     # Small eye gaps are a strong signal of a side/three-quarter profile.
-    if eye_gap < 0.16 * width or mouth_gap < 0.07 * width:
+    if eye_gap < 0.12 * width or mouth_gap < 0.06 * width:
         return False
 
     eye_mid_x = (right_eye[0] + left_eye[0]) * 0.5
