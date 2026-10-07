@@ -49,9 +49,12 @@ def passes_face_quality_gate(
         except (TypeError, ValueError):
             return False
 
+    # Recognition events must have real facial geometry. A detector
+    # bbox without landmarks can be a head/occlusion/background false
+    # positive, so never allow it into the face event/gallery.
     landmarks = extra.get("yunet_landmarks")
     if landmarks is None:
-        return True
+        return False
 
     try:
         values = [float(value) for value in landmarks]
