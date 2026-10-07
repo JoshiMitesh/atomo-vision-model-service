@@ -163,7 +163,8 @@ class FaceYunetWorker:
         # Emit detector hits on every processed frame. The stream reader
         # already samples the camera, so this produces one event per sampled
         # frame rather than tracker-only first sightings.
-        for detection in detections:
+        for detection_index, detection in enumerate(detections):
+            track_id = f"frame_{frame.frame_id}_face_{detection_index}"
             # Publishing the detection must not depend on MinIO succeeding.
             # A temporary crop-upload failure should remove the image, not
             # the face event itself.
