@@ -42,11 +42,28 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 
 def _optional_float(value) -> Optional[float]:
-    return None if value is None else float(value)
+    return None if value in (None, "") else float(value)
+
+
+def _extract_location(raw: dict) -> Tuple[Optional[float], Optional[float]]:
+    """Camera (latitude, longitude) from a job as Master sends it.
+
+    Master's exact key is not pinned down, so the usual shapes are all
+    accepted: top-level latitude/longitude (also lat/lng/lon), or the same
+    keys inside a nested `location` / `camera_location` / `camera` object.
+    """
+    for source in (raw, raw.get("location"), raw.get("camera_location"), raw.get("camera")):
+        if not isinstance(source, dict):
+            continue
+        lat = next((source[k] for k in ("latitude", "lat") if source.get(k) not in (None, "")), None)
+        lon = next((source[k] for k in ("longitude", "lng", "lon", "long") if source.get(k) not in (None, "")), None)
+        if lat is not None or lon is not None:
+            return _optional_float(lat), _optional_float(lon)
+    return None, None
 
 
 @dataclass(frozen=True)
@@ -96,6 +113,9 @@ class JobConfig:
     # message's cameras[] entry (null when the job carries none).
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    # Master's own `location` value for the camera, passed through exactly
+    # as received (e.g. a place name), published right after longitude.
+    location: Optional[Any] = None
 
     @property
     def primary_assignment(self) -> ModelAssignment:
@@ -160,6 +180,8 @@ class JobConfig:
             result["latitude"] = self.latitude
         if self.longitude is not None:
             result["longitude"] = self.longitude
+        if self.location is not None:
+            result["location"] = self.location
         return result
 
     @staticmethod
@@ -175,8 +197,9 @@ class JobConfig:
             zone_id=str(raw["zone_id"]),
             zone_name=str(raw["zone_name"]),
             model_assignments=tuple(ModelAssignment.from_dict(a) for a in assignments_raw),
-            latitude=_optional_float(raw.get("latitude")),
-            longitude=_optional_float(raw.get("longitude")),
+            latitude=_extract_location(raw)[0],
+            longitude=_extract_location(raw)[1],
+            location=raw.get("location"),
         )
 
     def config_changed(self, other: "JobConfig") -> bool:
