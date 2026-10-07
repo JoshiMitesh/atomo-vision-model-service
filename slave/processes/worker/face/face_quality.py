@@ -10,7 +10,7 @@ from slave.models.detection import Detection
 def passes_face_quality_gate(
     detection: Detection,
     *,
-    min_confidence: float = 0.70,
+    min_confidence: float = 0.76,
     min_box_size: float = 70.0,
     min_brightness: float = 25.0,
     min_contrast: float = 12.0,
