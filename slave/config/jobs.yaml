@@ -7,6 +7,8 @@ jobs:
     camera_stream: rtsp://192.168.1.38:8554/video
     zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
     zone_name: office
+    latitude: 23.0225
+    longitude: 72.5714
     model_assignments:
       - model_type: face
         model_name: face_detection_yunet_2023mar_int8.onnx

@@ -90,10 +90,16 @@ class NumberPlatePtWorker:
         raw_detections = self._detector.detect(frame.image)
         plate_detections = self._enricher.enrich(frame.image, raw_detections, frame.frame_id)
 
+        # Only plates whose number was actually read are published (and
+        # uploaded) -- an unread plate would just be a null plate_number
+        # event. Video still records every detected plate.
+        readable_plates = [d for d in plate_detections if d.extra.get("plate_number")]
+
         object_key = url = None
         annotated = None
         if plate_detections:
             annotated = draw_detections(frame.image, plate_detections)
+        if readable_plates:
             upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
             if upload_info is not None:
                 object_key, url = upload_info
@@ -102,7 +108,7 @@ class NumberPlatePtWorker:
         if object_key is not None:
             height, width = (int(v) for v in frame.image.shape[:2])
 
-        telemetry = group_detections(plate_detections, self._job, tracking_id=object_key)
+        telemetry = group_detections(readable_plates, self._job, tracking_id=object_key)
 
         result = DetectionResult(
             job_id=self._job.job_id,
@@ -118,6 +124,8 @@ class NumberPlatePtWorker:
             camera_name=self._job.camera_name,
             camera_stream=self._job.camera_stream,
             camera_status=self._frame_reader.get_status(),
+            latitude=self._job.latitude,
+            longitude=self._job.longitude,
             telemetry=telemetry,
             object_key=object_key,
             url=url,
