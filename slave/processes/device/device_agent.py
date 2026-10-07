@@ -30,6 +30,7 @@ import nats
 from slave.config import DeviceConfig, NatsConfig
 from slave.logging.logger import get_logger
 from slave.processes.device.command_subscriber import build_command_handler
+from slave.processes.device.runtime_status import RuntimeStatus
 from slave.processes.device.registration_publisher import publish_registration
 from slave.processes.device.telemetry_publisher import publish_event, telemetry_loop
 
@@ -42,10 +43,12 @@ class DeviceAgent:
         nats_config: NatsConfig,
         device_config: DeviceConfig,
         jobs_yaml_path: Optional[str] = None,
+        runtime_status: Optional[RuntimeStatus] = None,
     ) -> None:
         self._nats_config = nats_config
         self._device_config = device_config
         self._jobs_yaml_path = jobs_yaml_path
+        self._runtime_status = runtime_status
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run, name="device-agent", daemon=True)
         self._stop_event: Optional[asyncio.Event] = None
@@ -141,7 +144,7 @@ class DeviceAgent:
             register_subject = nc_cfg.register_subject.format(device_name=device_name)
             self._data_subject = data_subject
 
-            handler = build_command_handler(device_name, self._jobs_yaml_path, dc.ip)
+            handler = build_command_handler(device_name, self._jobs_yaml_path, dc.ip, self._runtime_status)
             await nc.subscribe(cmd_subject, cb=handler)
             log.info("listening for device commands on %s", cmd_subject)
 
@@ -155,7 +158,7 @@ class DeviceAgent:
         try:
             await telemetry_loop(
                 nc, self._data_subject, dc.heartbeat_interval_seconds, self._stop_event, self._jobs_yaml_path,
-                dc.device_name, dc.ip,
+                dc.device_name, dc.ip, self._runtime_status,
             )
         finally:
             self._nc = None

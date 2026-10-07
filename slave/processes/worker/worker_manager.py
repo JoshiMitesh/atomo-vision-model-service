@@ -71,6 +71,20 @@ class WorkerManager:
         with self._lock:
             return job_id in self._workers
 
+    def camera_status(self, job_id: str) -> str:
+        """'online' if any of the job's workers has a live RTSP
+        connection, else 'offline' (no worker, or stream down/
+        reconnecting). Reads each worker's FrameReader (every worker
+        owns exactly one, as `_frame_reader`).
+        """
+        with self._lock:
+            workers = list(self._workers.get(job_id, []))
+        for worker in workers:
+            reader = getattr(worker, "_frame_reader", None)
+            if reader is not None and reader.get_status() == "online":
+                return "online"
+        return "offline"
+
     def stop_all(self) -> None:
         with self._lock:
             job_ids = list(self._workers.keys())

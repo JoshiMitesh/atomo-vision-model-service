@@ -14,17 +14,18 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from slave.logging.logger import get_logger
+from slave.processes.device.runtime_status import RuntimeStatus
 from slave.processes.device.telemetry import sample_telemetry, uptime_seconds
 
 log = get_logger(__name__)
 
 
-def execute_command(cmd: Dict[str, Any], jobs_yaml_path: Optional[str] = None, device_name: str = "unknown-device", ip: str = "") -> Dict[str, Any]:
+def execute_command(cmd: Dict[str, Any], jobs_yaml_path: Optional[str] = None, device_name: str = "unknown-device", ip: str = "", runtime: Optional[RuntimeStatus] = None) -> Dict[str, Any]:
     op = cmd.get("op")
     params = cmd.get("params", {})
 
     if op == "get_status":
-        telemetry = sample_telemetry(jobs_yaml_path, device_name, ip)
+        telemetry = sample_telemetry(jobs_yaml_path, device_name, ip, runtime)
         return {
             "status": "ok",
             "op": op,
@@ -35,6 +36,9 @@ def execute_command(cmd: Dict[str, Any], jobs_yaml_path: Optional[str] = None, d
                 "disk": telemetry.get("disk"),
                 "running_cameras": telemetry.get("running_cameras"),
                 "loaded_models": telemetry.get("loaded_models"),
+                "cameras": telemetry.get("cameras"),
+                "running_jobs": telemetry.get("running_jobs"),
+                "failed_assignments": telemetry.get("failed_assignments"),
                 "uptime_s": uptime_seconds(),
             },
         }

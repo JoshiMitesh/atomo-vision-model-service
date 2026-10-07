@@ -29,6 +29,7 @@ from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
+from slave.processes.worker.face.face_crop import crop_face
 from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
 from slave.processes.worker.models.face.nb.face_nb_detector import FaceNbDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
@@ -98,17 +99,34 @@ class FaceNbWorker:
     def _process_frame(self, frame) -> None:
         detections = self._detector.detect(frame.image)
 
+        # Upload one cropped photo per detected face (not the whole
+        # camera frame). media.object_key/url/width/height describe the
+        # first crop; media.crops lists every saved crop.
         object_key = url = None
-        annotated = None
-        if detections:
-            annotated = draw_detections(frame.image, detections)
-            upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
-            if upload_info is not None:
-                object_key, url = upload_info
-
         width = height = None
-        if object_key is not None:
-            height, width = (int(v) for v in frame.image.shape[:2])
+        crops = None
+        for index, detection in enumerate(detections):
+            crop = crop_face(frame.image, detection.bbox)
+            if crop is None:
+                continue
+            upload_info = self._frame_uploader.upload_face_crop(
+                self._worker_key, frame.frame_id, f"face_{index}", crop
+            )
+            if upload_info is None:
+                continue
+            crop_height, crop_width = (int(v) for v in crop.shape[:2])
+            if crops is None:
+                crops = []
+                object_key, url = upload_info
+                width, height = crop_width, crop_height
+            crops.append(
+                {
+                    "object_key": upload_info[0],
+                    "url": upload_info[1],
+                    "width": crop_width,
+                    "height": crop_height,
+                }
+            )
 
         telemetry = group_detections(detections, self._job, tracking_id=object_key)
 
@@ -126,16 +144,19 @@ class FaceNbWorker:
             camera_name=self._job.camera_name,
             camera_stream=self._job.camera_stream,
             camera_status=self._frame_reader.get_status(),
+            latitude=self._job.latitude,
+            longitude=self._job.longitude,
             telemetry=telemetry,
             object_key=object_key,
             url=url,
             width=width,
             height=height,
+            crops=crops,
         )
         self._detection_publisher.publish_detection(result)
 
         if detections:
-            self._video_manager.feed_frame(annotated)
+            self._video_manager.feed_frame(draw_detections(frame.image, detections))
 
     def _cleanup(self) -> None:
         try:

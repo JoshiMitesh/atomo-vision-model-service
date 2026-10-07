@@ -41,6 +41,7 @@ from slave.config import load_slave_config
 from slave.logging.log_manager import LogManager
 from slave.logging.logger import get_logger
 from slave.processes.device.device_agent import DeviceAgent
+from slave.processes.device.runtime_status import RuntimeStatus
 from slave.processes.job.job_manager import JobManager
 from slave.processes.job.job_runner import JobRunner
 from slave.processes.minio.frame_uploader import FrameUploader
@@ -113,8 +114,9 @@ def main() -> None:
 
     registry = build_default_registry() 
     worker_manager = WorkerManager()
-    model_manager = ModelManager(registry, config.resolve_path("config"), services)
-    job_manager = JobManager(worker_manager, model_manager)
+    runtime_status = RuntimeStatus(worker_manager) # what's actually running/failed/online, reported in the device health message
+    model_manager = ModelManager(registry, config.resolve_path("config"), services, runtime_status)
+    job_manager = JobManager(worker_manager, model_manager, runtime_status)
 
     job_runner = JobRunner(jobs_yaml_path, config.jobs.poll_interval_seconds, job_manager)
     job_runner.start()
@@ -153,7 +155,7 @@ def main() -> None:
 
     # Device health/telemetry/command channel — independent of the job
     # pipeline above (see processes/device/device_agent.py).
-    device_agent = DeviceAgent(config.nats, config.device, jobs_yaml_path)
+    device_agent = DeviceAgent(config.nats, config.device, jobs_yaml_path, runtime_status)
     device_agent.start()
 
     shutdown_event = threading.Event()
