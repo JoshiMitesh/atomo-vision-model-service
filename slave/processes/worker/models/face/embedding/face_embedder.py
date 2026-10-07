@@ -32,7 +32,7 @@ from slave.processes.worker.models.face.embedding.face_image_enhancer import enh
 log = get_logger(__name__)
 
 # These match the reference YuNet configuration.
-_LANDMARK_SCORE_THRESH = 0.90
+_LANDMARK_SCORE_THRESH = 0.70
 _LANDMARK_NMS_THRESH = 0.30
 _LANDMARK_TOP_K = 5000
 
@@ -384,7 +384,42 @@ class FaceEmbedder:
 
         eye_gap = float(np.linalg.norm(right_eye - left_eye))
         mouth_gap = float(np.linalg.norm(right_mouth - left_mouth))
-        if eye_gap < 0.08 * w or mouth_gap < 0.05 * w:
+
+        # YuNet can occasionally produce a high-confidence false positive
+        # on hand/keyboard patterns.  Require a tighter, internally
+        # consistent five-point facial layout before SFace is allowed to
+        # create an embedding.
+        if not 0.18 * w <= eye_gap <= 0.60 * w:
+            return False
+        if not 0.10 * w <= mouth_gap <= 0.45 * w:
+            return False
+        if not 1.25 <= eye_gap / max(mouth_gap, 1.0) <= 5.0:
+            return False
+
+        eye_mid_x = float((right_eye[0] + left_eye[0]) * 0.5)
+        eye_mid_y = float((right_eye[1] + left_eye[1]) * 0.5)
+        mouth_mid_x = float((right_mouth[0] + left_mouth[0]) * 0.5)
+        mouth_mid_y = float((right_mouth[1] + left_mouth[1]) * 0.5)
+
+        # A real face should have the five landmarks arranged around the
+        # vertical facial axis rather than merely satisfying the ordering
+        # checks above.
+        if abs(eye_mid_x - ((x1 + x2) * 0.5)) > 0.12 * w:
+            return False
+        if abs(nose[0] - eye_mid_x) > 0.10 * w:
+            return False
+        if abs(mouth_mid_x - eye_mid_x) > 0.10 * w:
+            return False
+
+        eye_to_nose = (float(nose[1]) - eye_mid_y) / max(h, 1.0)
+        nose_to_mouth = (mouth_mid_y - float(nose[1])) / max(h, 1.0)
+        if not 0.16 <= eye_to_nose <= 0.42:
+            return False
+        if not 0.08 <= nose_to_mouth <= 0.26:
+            return False
+
+        face_aspect = w / max(h, 1.0)
+        if not 0.65 <= face_aspect <= 1.20:
             return False
 
         return True
@@ -446,6 +481,34 @@ class FaceEmbedder:
                 and 0.30 <= best_y / max(1.0, float(h)) <= 0.70
                 and relative_mouth_y >= 0.52
             ):
+                return False
+
+            # Laptop keyboards/edges can produce several parallel,
+            # full-width horizontal boundaries below a YuNet false-positive
+            # hand detection. Reject that pattern only when the lines are
+            # concentrated in the lower half of the candidate crop; this
+            # leaves normal face contours/background edges untouched.
+            lower_start = int(h * 0.48)
+            row_scores = []
+            for row in range(max(lower_start, 2), max(lower_start + 1, h - 2)):
+                delta = np.abs(
+                    gray[row + 1, 3:-3].astype(np.int16)
+                    - gray[row - 1, 3:-3].astype(np.int16)
+                )
+                if delta.size:
+                    row_scores.append((row, float(np.mean(delta > 18))))
+            strong_rows = [
+                row
+                for row, ratio in row_scores
+                if ratio >= 0.62
+            ]
+            separated = 0
+            last_row = None
+            for row in strong_rows:
+                if last_row is None or row - last_row >= max(3, int(h * 0.025)):
+                    separated += 1
+                last_row = row
+            if separated >= 3 and relative_mouth_y >= 0.45:
                 return False
 
             return True

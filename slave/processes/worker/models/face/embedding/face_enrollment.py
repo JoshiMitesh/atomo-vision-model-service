@@ -57,7 +57,7 @@ class FaceEnrollmentProcessor:
                 if face.shape[0] < 15 or not np.isfinite(face).all():
                     continue
                 confidence = float(face[-1])
-                if confidence < 0.80:
+                if confidence < 0.75:
                     continue
                 x, y, w, h = map(float, face[:4])
                 if w < 50.0 or h < 50.0:
