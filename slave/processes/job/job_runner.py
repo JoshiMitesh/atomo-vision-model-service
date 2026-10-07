@@ -24,8 +24,10 @@ class JobRunner:
 
     def start(self) -> None:
         self._watcher.start()
+        self._job_manager.start_watchdog()
         log.info("job runner started")
 
     def stop(self) -> None:
+        self._job_manager.stop_watchdog()
         self._watcher.stop()
         log.info("job runner stopped")

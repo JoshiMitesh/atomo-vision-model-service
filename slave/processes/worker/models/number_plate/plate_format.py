@@ -21,8 +21,10 @@ import re
 from typing import Tuple
 
 # Normal state-issued registration: 2 letters (state) + 1-2 digits (RTO
-# code) + 0-3 letters (series) + 4 digits (number), e.g. "MH12AB1234".
-PLATE_RE = re.compile(r"^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{4})$")
+# code) + 1-3 letters (series) + 4 digits (number), e.g. "MH12AB1234".
+# A plate with no series letters is not a modern plate, so a read like
+# "GJ320710" is a misread, not a real registration.
+PLATE_RE = re.compile(r"^([A-Z]{2})(\d{1,2})([A-Z]{1,3})(\d{4})$")
 
 # Bharat (BH) series, e.g. "23BH1234A".
 _BH_PLATE_RE = re.compile(r"^\d{2}BH\d{4}[A-Z]{1,2}$")
@@ -35,6 +37,12 @@ STATES = {
     "LA", "LD", "MH", "ML", "MN", "MP", "MZ", "NL", "OD", "OR", "PB", "PY", "RJ", "SK", "TN", "TR", "TS", "UK",
     "UA", "UP", "WB",
 }
+
+# Highest RTO district code in use per state -- a read whose district is
+# above it cannot be a real plate (e.g. "GJ93..." from a blurry GJ03).
+# Only states listed here are range-checked; add others once confirmed.
+# District 00 is never valid for any state.
+MAX_DISTRICT = {"GJ": 39}
 
 TO_LETTER = {"0": "O", "1": "I", "2": "Z", "5": "S", "6": "G", "8": "B", "4": "A", "7": "T"}
 TO_DIGIT = {"O": "0", "D": "0", "Q": "0", "I": "1", "L": "1", "Z": "2", "S": "5", "G": "6", "B": "8", "T": "7", "A": "4"}
@@ -54,22 +62,56 @@ def fix_state(s: str) -> str:
     return s
 
 
+# Letters that can only ever be a misread digit: no Indian series uses I
+# or O, so these are safe to turn back into digits wherever a digit is
+# required. The wider TO_DIGIT map (G->6, S->5, B->8, A->4, T->7, ...) is
+# NOT safe in the 4-digit tail or the district: G/S/B/A/T/Z/D are all
+# legal series letters, so a plate whose last digit was clipped by the
+# detector box ("GJ32AG288" for GJ32AG2883) used to have its series
+# letter "repaired" into a digit and come out as a different, valid-
+# looking plate ("GJ32A6288"). A read whose tail is not four real
+# digits is now rejected instead of repaired.
+SAFE_TO_DIGIT = {"O": "0", "I": "1"}
+
+# A digit seen where a series letter belongs is a misread letter. Series
+# letters never include I or O, so "0" can only be D (not O) and "1" has no
+# valid letter at all.
+SERIES_FROM_DIGIT = {"0": "D", "2": "Z", "4": "A", "5": "S", "6": "G", "7": "T", "8": "B"}
+
+
 def normalize_plate(text: str) -> Tuple[str, bool]:
-    """Force Indian layout: AA 00 A(AA) 0000. Returns (corrected_plate, valid)."""
+    """Force Indian layout: AA 00 A(AA) 0000. Returns (corrected_plate, valid).
+
+    State letters are repaired (digit->letter look-alikes, then fix_state());
+    the district and the 4-digit tail only accept I/O look-alikes. Anything
+    else that is not already a digit there (a clipped or garbled read) is
+    returned as invalid rather than guessed into a plate.
+    """
     t = re.sub(r"[^A-Z0-9]", "", text.upper())
-    if len(t) < 8:
+    if len(t) < 8 or len(t) > _MAX_LENGTH:
         return t, False
     head = "".join(TO_LETTER.get(c, c) if c.isdigit() else c for c in t[:2])
-    tail = "".join(TO_DIGIT.get(c, c) for c in t[-4:])
+    tail = "".join(SAFE_TO_DIGIT.get(c, c) for c in t[-4:])
     mid = t[2:-4]
-    # district: first 1-2 chars as digits, series: rest as letters
-    m = re.match(
-        r"^(.{1,2}?)(\D*)$", "".join(TO_DIGIT.get(c, c) if i < 2 else c for i, c in enumerate(mid))
-    ) if mid else None
-    dist, ser = (m.group(1), m.group(2)) if m else (mid, "")
-    ser = "".join(TO_LETTER.get(c, c) for c in ser)
+    if not tail.isdigit():
+        return fix_state(head) + mid + tail, False
+
+    # district: 1-2 leading digits of the middle section (I/O look-alikes only)
+    dist = ""
+    for c in mid[:2]:
+        c = SAFE_TO_DIGIT.get(c, c)
+        if not c.isdigit():
+            break
+        dist += c
+    # series: whatever is left must be letters (a stray digit is a misread letter)
+    ser = "".join(SERIES_FROM_DIGIT.get(c, c) for c in mid[len(dist):])
     plate = fix_state(head) + dist + ser + tail
-    return plate, bool(PLATE_RE.match(plate)) and plate[:2] in STATES
+    valid = bool(PLATE_RE.match(plate)) and plate[:2] in STATES and not set(ser) & {"I", "O"}
+    return plate, valid and _district_ok(plate[:2], dist)
+
+
+def _district_ok(state: str, dist: str) -> bool:
+    return 1 <= int(dist) <= MAX_DISTRICT.get(state, 99)
 
 
 def is_valid_indian_plate(text: str) -> bool:

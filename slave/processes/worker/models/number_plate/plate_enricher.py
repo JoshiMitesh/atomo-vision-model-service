@@ -32,6 +32,11 @@ class PlateEnricher:
         tracking_cfg = model_config.get("tracking", {})
 
         self._interval = int(ocr_cfg.get("interval_frames", 5))
+        # A plate's number is often readable in only one or two frames of
+        # its pass (the rest are blurred/angled/clipped), so while a track
+        # has no accepted read yet, OCR runs this often instead of
+        # `interval_frames`.
+        self._search_interval = int(ocr_cfg.get("search_interval_frames", 1))
         self._min_score = float(ocr_cfg.get("min_score", 0.45))
         self._min_confirmations = int(ocr_cfg.get("min_confirmations", 1))
         self._max_vote_history = int(ocr_cfg.get("max_vote_history", 30))
@@ -44,10 +49,12 @@ class PlateEnricher:
 
         self._ocr = None
         if bool(ocr_cfg.get("enabled", True)):
-            pad_ratios = ocr_cfg.get("pad_ratios", (0.10, 0.20))
+            kwargs = {}
+            if ocr_cfg.get("pad_ratios"):  # [[pad_x, pad_y], ...]; omitted -> plate_ocr.PAD_RATIOS
+                kwargs["pad_ratios"] = tuple(tuple(p) if isinstance(p, (list, tuple)) else p for p in ocr_cfg["pad_ratios"])
             self._ocr = PlateOcr(
                 model_name=ocr_cfg.get("model_name", "cct-s-v2-global-model"),
-                pad_ratios=tuple(pad_ratios),
+                **kwargs,
             )
 
     def enrich(self, frame: np.ndarray, detections: List[Detection], frame_number: int) -> List[Detection]:
@@ -56,7 +63,8 @@ class PlateEnricher:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if self._ocr is not None and pairs else None
 
         for detection, track in pairs:
-            if self._ocr is not None and (frame_number - track.last_ocr_frame) >= self._interval:
+            interval = self._interval if track.confirmation_count else self._search_interval
+            if self._ocr is not None and (frame_number - track.last_ocr_frame) >= interval:
                 track.last_ocr_frame = frame_number
                 plate, score, valid, _ = self._ocr.read_plate(gray, detection.bbox)
                 accepted = bool(plate) and score >= self._min_score
