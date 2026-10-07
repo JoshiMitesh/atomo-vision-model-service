@@ -16,6 +16,9 @@ class DetectionPublisher:
         self._subject = detection_subject # subject is the NATS subject to which detections will be published
 
     def publish_detection(self, result: DetectionResult) -> None:
+        # Frames with nothing detected are never sent to the Master.
+        if not result.has_detections:
+            return
         message = build_detection_message(result) # build_detection_message is a function that takes a DetectionResult and converts it into a message format suitable for publishing over NATS
         try:
             self._publisher.publish(self._subject, message) # publish is a method of the Publisher class that sends the message to the specified NATS subject

@@ -134,6 +134,8 @@ class SafetyPtWorker:
             camera_name=self._job.camera_name,
             camera_stream=self._job.camera_stream,
             camera_status=self._frame_reader.get_status(),
+            latitude=self._job.latitude,
+            longitude=self._job.longitude,
             telemetry=telemetry,
             object_key=object_key,
             url=url,
