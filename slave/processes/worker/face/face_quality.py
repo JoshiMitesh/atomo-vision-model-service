@@ -10,10 +10,10 @@ from slave.models.detection import Detection
 def passes_face_quality_gate(
     detection: Detection,
     *,
-    min_confidence: float = 0.76,
-    min_box_size: float = 40.0,
-    min_brightness: float = 25.0,
-    min_contrast: float = 12.0,
+    min_confidence: float = 0.70,
+    min_box_size: float = 35.0,
+    min_brightness: float = 20.0,
+    min_contrast: float = 10.0,
 ) -> bool:
     """Accept clean, usable recognition-quality face crops with moderate pose tolerance.
 
@@ -83,7 +83,7 @@ def passes_face_quality_gate(
     mouth_gap = distance(right_mouth, left_mouth)
     # A recognition crop must contain both eyes with useful separation.
     # Small eye gaps are a strong signal of a side/three-quarter profile.
-    if eye_gap < 0.16 * width or mouth_gap < 0.07 * width:
+    if eye_gap < 0.12 * width or mouth_gap < 0.06 * width:
         return False
 
     eye_mid_x = (right_eye[0] + left_eye[0]) * 0.5
@@ -94,11 +94,11 @@ def passes_face_quality_gate(
     face_mid_x = (x1 + x2) * 0.5
 
     # Reject strong yaw: landmarks must remain close to the face center.
-    if abs(eye_mid_x - face_mid_x) > 0.16 * width:
+    if abs(eye_mid_x - face_mid_x) > 0.22 * width:
         return False
-    if abs(nose_x - eye_mid_x) > 0.13 * width:
+    if abs(nose_x - eye_mid_x) > 0.18 * width:
         return False
-    if abs(mouth_mid_x - eye_mid_x) > 0.14 * width:
+    if abs(mouth_mid_x - eye_mid_x) > 0.20 * width:
         return False
 
     # Reject rolled/tilted faces.
