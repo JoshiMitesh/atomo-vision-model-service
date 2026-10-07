@@ -38,7 +38,7 @@ _FFMPEG_OPTIONS = (
 
 
 class RtspClient:
-    def __init__(self, url: str, decode_every_n_frames: int = 5) -> None:
+    def __init__(self, url: str, decode_every_n_frames: int = 1) -> None:
         self._url = url
         self._cap: cv2.VideoCapture | None = None
         self._decode_every_n_frames = max(1, int(decode_every_n_frames))
@@ -75,10 +75,6 @@ class RtspClient:
         self._read_counter += 1
         if self._read_counter % self._decode_every_n_frames != 0:
             return True, None
-
-        if not self._cap.grab():
-            self._last_error = "OpenCV grab() failed"
-            return False, None
 
         ok, frame = self._cap.retrieve()
         if not ok or frame is None:
