@@ -29,6 +29,12 @@ class PlateTrack:
     published: bool = False
     history: List[Tuple[str, float]] = field(default_factory=list)
 
+    # Capture-time state. PT reads the newest available frame, so processed
+    # frame numbers are not consecutive source frames.
+    last_seen_frame: int = -1
+    last_seen_timestamp: float = 0.0
+    velocity: Center = (0.0, 0.0)
+
     def record_ocr(self, text: str, score: float, max_history: int) -> None:
         if not text:
             return
@@ -63,19 +69,52 @@ def _distance(a: Center, b: Center) -> float:
 
 
 class PlateTracker:
-    def __init__(self, max_match_distance: float, max_missed_frames: int) -> None:
+    def __init__(
+        self,
+        max_match_distance: float,
+        max_missed_frames: int,
+        max_track_gap_seconds: float = 1.5,
+    ) -> None:
         self._max_match_distance = max_match_distance
         self._max_missed_frames = max_missed_frames
+        self._max_track_gap_seconds = max(0.1, float(max_track_gap_seconds))
         self._tracks: List[PlateTrack] = []
         self._next_id = 1
 
-    def update(self, detections: List[Detection]) -> List[Tuple[Detection, PlateTrack]]:
+    @staticmethod
+    def _age_seconds(track: PlateTrack, timestamp: float) -> float:
+        if track.last_seen_timestamp <= 0.0 or timestamp <= 0.0:
+            return 0.0
+        return max(0.0, timestamp - track.last_seen_timestamp)
+
+    @classmethod
+    def _predicted_center(cls, track: PlateTrack, timestamp: float) -> Center:
+        dt = cls._age_seconds(track, timestamp)
+        return (
+            track.center[0] + track.velocity[0] * dt,
+            track.center[1] + track.velocity[1] * dt,
+        )
+
+    def update(
+        self,
+        detections: List[Detection],
+        frame_number: int,
+        timestamp: float,
+    ) -> List[Tuple[Detection, PlateTrack]]:
         centers = [_center(d.bbox) for d in detections]
         possible = []
 
         for ti, track in enumerate(self._tracks):
+            age = self._age_seconds(track, timestamp)
+            if age > self._max_track_gap_seconds:
+                continue
+
+            predicted = self._predicted_center(track, timestamp)
             for di, center in enumerate(centers):
-                possible.append((_distance(track.center, center), ti, di))
+                distance = _distance(predicted, center)
+                speed = (track.velocity[0] ** 2 + track.velocity[1] ** 2) ** 0.5
+                motion_allowance = min(speed * age * 1.25, 500.0)
+                possible.append((max(0.0, distance - motion_allowance), ti, di))
 
         possible.sort(key=lambda item: item[0])
 
@@ -90,7 +129,29 @@ class PlateTracker:
                 continue
 
             track = self._tracks[ti]
+            old_center = track.center
+            dt = self._age_seconds(track, timestamp)
+            predicted = self._predicted_center(track, timestamp)
+            actual_distance = _distance(predicted, centers[di])
+            speed = (track.velocity[0] ** 2 + track.velocity[1] ** 2) ** 0.5
+            allowed_distance = self._max_match_distance + min(speed * dt * 1.25, 500.0)
+            if actual_distance > allowed_distance:
+                continue
+
+            if dt > 0.01:
+                measured_velocity = (
+                    (centers[di][0] - old_center[0]) / dt,
+                    (centers[di][1] - old_center[1]) / dt,
+                )
+                alpha = 0.5
+                track.velocity = (
+                    alpha * measured_velocity[0] + (1.0 - alpha) * track.velocity[0],
+                    alpha * measured_velocity[1] + (1.0 - alpha) * track.velocity[1],
+                )
+
             track.center = centers[di]
+            track.last_seen_frame = frame_number
+            track.last_seen_timestamp = timestamp
             track.missed = 0
             matched_tracks.add(ti)
             matched_detections.add(di)
@@ -107,6 +168,8 @@ class PlateTracker:
             track = PlateTrack(
                 track_id=self._next_id,
                 center=centers[di],
+                last_seen_frame=frame_number,
+                last_seen_timestamp=timestamp,
             )
             self._next_id += 1
             self._tracks.append(track)
@@ -114,7 +177,10 @@ class PlateTracker:
 
         self._tracks = [
             track for track in self._tracks
-            if track.missed <= self._max_missed_frames
+            if (
+                (timestamp <= 0.0 and track.missed <= self._max_missed_frames)
+                or (timestamp > 0.0 and self._age_seconds(track, timestamp) <= self._max_track_gap_seconds)
+            )
         ]
 
         return [item for item in result if item is not None]
