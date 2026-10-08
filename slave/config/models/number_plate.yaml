@@ -47,6 +47,13 @@ input:
   pad_value: 114
 
 pt:
+  # PT-only detector filters, matching the supplied reference.
+  filters:
+    min_plate_width_px: 45
+    min_plate_height_px: 15
+    min_plate_aspect: 2.0
+    max_plate_aspect: 8.0
+    min_plate_area_ratio: 0.00005
   # Resolved flat against processes/worker/models/number_plate/ (same
   # convention as person.pt/fire.pt).
   model_file: number_plate.pt
