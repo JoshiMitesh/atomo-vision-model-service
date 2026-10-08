@@ -154,6 +154,8 @@ class FaceYunetWorker:
                 latitude=self._job.latitude,
                 longitude=self._job.longitude,
                 telemetry=live_telemetry,
+                width=int(frame.image.shape[1]),
+                height=int(frame.image.shape[0]),
             )
             self._detection_publisher.publish_detection(live_result)
 
