@@ -130,29 +130,15 @@ class FaceEmbedder:
         return self._recognizer is not None and self._landmarker is not None
 
     def attach(self, frame: np.ndarray, detections: List[Detection]) -> List[Detection]:
-        """Attach reference-compatible SFace embeddings to face detections."""
+        """Attach SFace embeddings using the landmarks already produced by YuNet."""
         if not detections:
             return detections
         if not self.available:
             return [self._with_embedding(d, None) for d in detections]
 
-        # YuNet must see the original frame, not a padded/resized face crop.
-        # This is the same coordinate space passed to SFace.alignCrop().
-        try:
-            h, w = frame.shape[:2]
-            self._landmarker.setInputSize((w, h))
-            _, faces = self._landmarker.detect(frame)
-        except Exception:
-            log.exception("YuNet landmark detection failed")
-            return [self._with_embedding(d, None) for d in detections]
-
-        if faces is None or len(faces) == 0:
-            return [self._with_embedding(d, None) for d in detections]
-
-        faces = np.asarray(faces, dtype=np.float32)
-
-        # Preserve the existing per-frame cap for CPU protection, while
-        # selecting the largest detector faces first as before.
+        # Do not run YuNet a second time here. The live 6 FPS detector already
+        # produced the landmarks for these exact detections. Reusing them makes
+        # recognition start much sooner and avoids processing a stale frame.
         order = sorted(
             range(len(detections)),
             key=lambda i: self._area(detections[i].bbox),
@@ -166,8 +152,6 @@ class FaceEmbedder:
             face_visible = False
             if idx in embeddable and self._is_embeddable(det):
                 landmark_face = self._landmarks_from_detection(det)
-                if landmark_face is None:
-                    landmark_face = self._match_yunet_face(faces, det.bbox)
                 if (
                     landmark_face is not None
                     and self._landmarks_look_complete(landmark_face, det.bbox)
