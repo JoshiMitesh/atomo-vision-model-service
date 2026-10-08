@@ -47,7 +47,6 @@ input:
   pad_value: 114
 
 pt:
-  # PT-only detector filters, matching the supplied reference.
   filters:
     min_plate_width_px: 45
     min_plate_height_px: 15
@@ -84,10 +83,10 @@ nb:
   # Cap on NPU inferences per second per job (alpr_npu.py's NPU_FPS = 12);
   # 0 disables the cap.
   target_fps: 12
-  obj_thresh: 0.35
+  obj_thresh: 0.45
   nms_thresh: 0.30
-  candidate_gather_thresh: 0.10
-  dfl_certainty_thresh: 0.12
+  candidate_gather_thresh: 0.18
+  dfl_certainty_thresh: 0.18
 
 so:
   # Native .so inference library options (see runtimes/npu/so_runtime.py).
@@ -103,8 +102,6 @@ so:
 # every raw detection every frame.
 ocr:
   enabled: true
-  # PT only: supplied reference uses PaddleOCR TextRecognition.
-  # NB keeps its own npu_ocr block below.
   model_name: PP-OCRv5_mobile_rec
   interval_frames: 5
   search_interval_frames: 5
@@ -114,7 +111,6 @@ ocr:
   max_vote_history: 30
   min_confirmations: 2
   validate_indian_plate: true
-
 # Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
 # ported from the board-verified alpr_npu.py (npu_plate_enricher.py).
 # The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
@@ -125,15 +121,15 @@ npu_ocr:
   # wheel); needs `pip install onnxruntime`. Set to "" for Paddle's own
   # engine. If OCR fails to initialise the job still runs detection-only.
   engine: onnxruntime
-  min_ocr_conf: 0.30           # raw OCR reads below this are ignored
-  track_iou_threshold: 0.15    # detection<->track match (IoU)
-  track_max_missed: 24         # frames a track survives without a detection
+  min_ocr_conf: 0.45           # raw OCR reads below this are ignored
+  track_iou_threshold: 0.20    # detection<->track match (IoU)
+  track_max_missed: 18         # frames a track survives without a detection
   max_history: 25              # OCR reads kept per track
   # A plate is "stable" once it has this many valid-Indian-format reads
   # AND total evidence >= min_stable_score (evidence = OCR conf x
   # detection conf x 1.65 valid / 0.30 invalid, boosted for repeats).
-  min_valid_observations: 2
-  min_stable_score: 1.2
+  min_valid_observations: 3
+  min_stable_score: 1.8
   # true  -> plate_number is null until the plate is "stable" (reference
   #          behaviour, its "STABLE PLATE" line).
   # false -> publish the current best text as soon as it is a valid
