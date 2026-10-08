@@ -63,7 +63,6 @@ class NpuPlateTrack:
         self.missed = 0
         self.history: List[dict] = []
         self.stable_text = ""
-        self.published = False
         self.total_valid = 0
         self._max_history = max_history
         self._min_valid_observations = min_valid_observations
