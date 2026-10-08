@@ -29,7 +29,6 @@ from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
-from slave.processes.worker.face.face_quality import passes_face_quality_gate
 from slave.processes.worker.models.face.embedding.face_embedder import FaceEmbedder
 from slave.processes.worker.models.face.yunet.face_yunet_detector import FaceYunetDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
@@ -135,13 +134,11 @@ class FaceYunetWorker:
 
         # Recognition remains separate and rate-limited. Only when a face is
         # eligible for recognition do we run SFace/YuNet landmarks.
-        quality_candidates = [
-            detection
-            for detection in detections
-            if passes_face_quality_gate(detection)
-        ]
-        if quality_candidates:
-            self._enqueue_latest_recognition(frame, quality_candidates)
+        # No brightness/contrast/visibility quality gate here.
+        # Every YuNet detection is eligible for recognition; pose/angle
+        # rejection is handled inside FaceEmbedder using facial landmarks.
+        if detections:
+            self._enqueue_latest_recognition(frame, detections)
 
         # Publish lightweight face boxes on every frame for the live overlay.
         # Do not attach embeddings/media here: these messages are transport-only
