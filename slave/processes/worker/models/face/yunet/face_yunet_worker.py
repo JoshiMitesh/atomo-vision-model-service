@@ -30,12 +30,15 @@ from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.face.face_quality import passes_face_quality_gate
-from slave.processes.worker.models.face.embedding.embedding_detector import with_embedding
+from slave.processes.worker.models.face.embedding.face_embedder import FaceEmbedder
 from slave.processes.worker.models.face.yunet.face_yunet_detector import FaceYunetDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
 
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
+FACE_DETECTION_FPS = 6.0
+FACE_DETECTION_INTERVAL_SECONDS = 1.0 / FACE_DETECTION_FPS
+RECOGNITION_INTERVAL_SECONDS = 2.0
 
 
 class FaceYunetWorker:
@@ -60,9 +63,14 @@ class FaceYunetWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = with_embedding(
-            FaceYunetDetector(model_path, model_config, assignment.model_name),
-            model_config,
+        # Live detection deliberately uses the raw YuNet detector. Recognition
+        # must never be allowed to filter live boxes through face_visible.
+        self._detector = FaceYunetDetector(
+            model_path, model_config, assignment.model_name
+        )
+        embedding_cfg = model_config.get("embedding", {})
+        self._embedder = FaceEmbedder(
+            embedding_cfg,
             models_dir,
             yunet_model_name=assignment.model_name,
         )
@@ -72,6 +80,7 @@ class FaceYunetWorker:
         # Recognition events are rate-limited without using FaceController.
         # Live face_detected telemetry remains every frame.
         self._recognition_event_history: list[dict] = []
+        self._next_detection_time = 0.0
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
@@ -99,18 +108,34 @@ class FaceYunetWorker:
             frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
             if frame is None:
                 continue
+            now = time.monotonic()
+            if now < self._next_detection_time:
+                continue
+            self._next_detection_time = now + FACE_DETECTION_INTERVAL_SECONDS
             try:
                 self._process_frame(frame)
             except Exception:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
+        # Raw YuNet detections are the source of truth for the live overlay.
+        # Run this path at a fixed 6 FPS and never let recognition quality
+        # filtering remove a visible face from the stream.
         detections = self._detector.detect(frame.image)
-        quality_detections = [
+
+        # Recognition remains separate and rate-limited. Only when a face is
+        # eligible for recognition do we run SFace/YuNet landmarks.
+        quality_candidates = [
             detection
             for detection in detections
             if passes_face_quality_gate(detection)
         ]
+        quality_detections = []
+        now = time.monotonic()
+        if quality_candidates:
+            for detection in self._embedder.attach(frame.image, quality_candidates):
+                if detection.extra.get("face_visible") is True:
+                    quality_detections.append(detection)
 
         # Publish lightweight face boxes on every frame for the live overlay.
         # Do not attach embeddings/media here: these messages are transport-only
@@ -155,7 +180,6 @@ class FaceYunetWorker:
         # Do not use FaceController here: a short time/position cooldown
         # prevents one continuously visible face from creating an event
         # every frame while still allowing a face to reach recognition.
-        now = time.monotonic()
         for detection in quality_detections:
             if not self._should_publish_recognition_event(detection, now):
                 continue
@@ -294,6 +318,10 @@ class FaceYunetWorker:
             self._detector.release()
         except Exception:
             self._log.exception("error releasing detector")
+        try:
+            self._embedder.release()
+        except Exception:
+            self._log.exception("error releasing face embedder")
         try:
             self._video_manager.close()
         except Exception:
