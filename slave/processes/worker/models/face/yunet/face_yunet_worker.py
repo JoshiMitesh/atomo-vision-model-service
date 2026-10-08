@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import replace
 import os
 import threading
+import time
 
 import cv2
 
@@ -67,6 +68,10 @@ class FaceYunetWorker:
         )
 
         self._frame_reader = FrameReader(worker_key, job.camera_stream)
+
+        # Recognition events are rate-limited without using FaceController.
+        # Live face_detected telemetry remains every frame.
+        self._recognition_event_history: list[dict] = []
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
@@ -146,12 +151,92 @@ class FaceYunetWorker:
             )
             self._detection_publisher.publish_detection(live_result)
 
-        # Recognition/profile work is handled separately from the live
-        # detection stream. Every detected face is sent to the live overlay;
-        # no tracker is used to decide whether a bbox is published.
+        # Recognition/profile work is separate from the live stream.
+        # Do not use FaceController here: a short time/position cooldown
+        # prevents one continuously visible face from creating an event
+        # every frame while still allowing a face to reach recognition.
+        now = time.monotonic()
+        for detection in quality_detections:
+            if not self._should_publish_recognition_event(detection, now):
+                continue
+
+            crop = self._crop_face(frame.image, detection.bbox)
+            if crop is None:
+                continue
+
+            track_id = f"face_recognition:{self._job.camera_id}:{frame.frame_id}"
+            upload_info = self._frame_uploader.upload_face_crop(
+                self._worker_key,
+                frame.frame_id,
+                track_id,
+                crop,
+            )
+            if upload_info is None:
+                continue
+
+            object_key, url = upload_info
+            crop_height, crop_width = (int(v) for v in crop.shape[:2])
+            telemetry = group_detections(
+                [detection],
+                self._job,
+                tracking_id=track_id,
+            )
+            result = DetectionResult(
+                job_id=self._job.job_id,
+                frame_id=frame.frame_id,
+                occurred_at=ist_now_iso(),
+                device_name=self._identity.device_name,
+                branch_id=self._job.branch_id,
+                branch_name=self._job.branch_name,
+                device_id=self._identity.device_id,
+                zone_id=self._job.zone_id,
+                zone_name=self._job.zone_name,
+                camera_id=self._job.camera_id,
+                camera_name=self._job.camera_name,
+                camera_stream=self._job.camera_stream,
+                camera_status=self._frame_reader.get_status(),
+                latitude=self._job.latitude,
+                longitude=self._job.longitude,
+                telemetry=telemetry,
+                object_key=object_key,
+                url=url,
+                width=crop_width,
+                height=crop_height,
+            )
+            self._detection_publisher.publish_detection(result)
 
         if detections:
             self._video_manager.feed_frame(draw_detections(frame.image, detections))
+
+    def _should_publish_recognition_event(self, detection, now: float) -> bool:
+        x1, y1, x2, y2 = detection.bbox
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+
+        # Keep the same face from generating recognition work continuously.
+        # A 2-second interval still lets recognition refresh while avoiding
+        # one database/profile event per frame.
+        interval = 2.0
+        distance_px = 140.0
+
+        for item in self._recognition_event_history:
+            if now - item["time"] > 10.0:
+                continue
+            if item["class_name"] != detection.class_name:
+                continue
+            distance = ((cx - item["cx"]) ** 2 + (cy - item["cy"]) ** 2) ** 0.5
+            if distance <= distance_px:
+                if now - item["time"] < interval:
+                    return False
+                item.update(time=now, cx=cx, cy=cy)
+                return True
+
+        self._recognition_event_history.append(
+            {"time": now, "cx": cx, "cy": cy, "class_name": detection.class_name}
+        )
+        if len(self._recognition_event_history) > 50:
+            self._recognition_event_history = self._recognition_event_history[-50:]
+        return True
 
     @staticmethod
     def _crop_face(frame_image, bbox):
