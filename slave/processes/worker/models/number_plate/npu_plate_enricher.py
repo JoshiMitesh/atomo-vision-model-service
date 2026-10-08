@@ -46,6 +46,7 @@ class NpuPlateEnricher:
             min_stable_score=float(cfg.get("min_stable_score", 1.8)),
         )
 
+        self._publish_queue: List[Detection] = []
         self._ocr: Optional[NpuPlateOcr] = None
         if bool(cfg.get("enabled", True)):
             try:
@@ -60,6 +61,7 @@ class NpuPlateEnricher:
 
     def enrich(self, frame: np.ndarray, detections: List[Detection], frame_number: int) -> List[Detection]:
         enriched: List[Detection] = []
+        self._publish_queue = []
 
         for detection, track in self._tracker.update(detections):
             if self._ocr is not None:
@@ -70,16 +72,23 @@ class NpuPlateEnricher:
             best_text, best_conf, stable, _ = track.get_best_result()
             publish = bool(best_text) and (stable if self._publish_only_stable else is_indian_plate(best_text))
 
-            enriched.append(
-                replace(
-                    detection,
-                    extra={
-                        "plate_number": best_text if publish else None,
-                        "plate_confidence": best_conf if publish else None,
-                    },
-                )
+            enriched_detection = replace(
+                detection,
+                extra={
+                    "plate_number": best_text if publish else None,
+                    "plate_confidence": best_conf if publish else None,
+                },
             )
+            enriched.append(enriched_detection)
+            if publish and not track.published:
+                track.published = True
+                self._publish_queue.append(enriched_detection)
         return enriched
+
+    def take_publishable(self) -> List[Detection]:
+        queued = self._publish_queue
+        self._publish_queue = []
+        return queued
 
     def _read_plate(self, frame: np.ndarray, bbox: Tuple[float, float, float, float]) -> Tuple[str, float]:
         h, w = frame.shape[:2]
