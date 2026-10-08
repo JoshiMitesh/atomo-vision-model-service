@@ -294,9 +294,8 @@ class FaceYunetWorker:
         if x2 <= x1 or y2 <= y1:
             return None
 
-        # Match the existing reference face-crop behavior:
-        # 60% padding around the detector box, minimum 150 px, CLAHE,
-        # and JPEG quality 90 at upload time.
+        # Keep the original face pixels: 60% padding around the detector
+        # box and minimum 150 px. No color/contrast enhancement.
         box_w = x2 - x1
         box_h = y2 - y1
         pad_w = int(box_w * 0.60)
@@ -317,16 +316,6 @@ class FaceYunetWorker:
                 interpolation=cv2.INTER_CUBIC,
             )
 
-        try:
-            lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
-            crop = cv2.cvtColor(
-                cv2.merge([clahe.apply(l), a, b]),
-                cv2.COLOR_LAB2BGR,
-            )
-        except Exception:
-            pass
 
         return crop
 
