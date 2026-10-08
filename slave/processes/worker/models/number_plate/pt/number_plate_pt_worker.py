@@ -55,7 +55,10 @@ class NumberPlatePtWorker:
         self._enricher = PlateEnricher(model_config)
 
         url = job.camera_stream
-        self._frame_reader = FrameReader(worker_key, url)
+        # PT must always work from the newest available frame. The reader keeps a
+        # single-slot latest-frame queue, so slow OCR never creates a backlog of stale frames.
+        # Keep PT frame acquisition independent from the NB/SO/NPU workers.
+        self._frame_reader = FrameReader(worker_key, url, decode_every_n_frames=1)
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
