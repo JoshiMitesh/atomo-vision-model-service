@@ -13,6 +13,7 @@ SFace remains internal to the embedding wrapper.
 from __future__ import annotations
 
 from dataclasses import replace
+from queue import Empty, Full, Queue
 import os
 import threading
 import time
@@ -28,7 +29,6 @@ from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
-from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.face.face_quality import passes_face_quality_gate
 from slave.processes.worker.models.face.embedding.face_embedder import FaceEmbedder
 from slave.processes.worker.models.face.yunet.face_yunet_detector import FaceYunetDetector
@@ -82,6 +82,14 @@ class FaceYunetWorker:
         self._recognition_event_history: list[dict] = []
         self._next_detection_time = 0.0
 
+        # Single-slot queue: recognition always receives the newest detected frame.
+        self._recognition_queue: Queue = Queue(maxsize=1)
+        self._recognition_thread = threading.Thread(
+            target=self._recognition_run,
+            name=f"face-yunet-recognition-{worker_key}",
+            daemon=True,
+        )
+
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
@@ -92,11 +100,13 @@ class FaceYunetWorker:
     def start(self) -> None:
         self._frame_reader.start()
         self._thread.start()
-        self._log.info("standalone face YuNet worker started")
+        self._recognition_thread.start()
+        self._log.info("standalone face YuNet worker started (6 FPS detection, latest-frame recognition)")
 
     def stop(self) -> None:
         self._stop_event.set()
         self._thread.join(timeout=10)
+        self._recognition_thread.join(timeout=10)
         self._cleanup()
         self._log.info("standalone face YuNet worker stopped")
 
@@ -130,12 +140,8 @@ class FaceYunetWorker:
             for detection in detections
             if passes_face_quality_gate(detection)
         ]
-        quality_detections = []
-        now = time.monotonic()
         if quality_candidates:
-            for detection in self._embedder.attach(frame.image, quality_candidates):
-                if detection.extra.get("face_visible") is True:
-                    quality_detections.append(detection)
+            self._enqueue_latest_recognition(frame, quality_candidates)
 
         # Publish lightweight face boxes on every frame for the live overlay.
         # Do not attach embeddings/media here: these messages are transport-only
@@ -176,61 +182,79 @@ class FaceYunetWorker:
             )
             self._detection_publisher.publish_detection(live_result)
 
-        # Recognition/profile work is separate from the live stream.
-        # Do not use FaceController here: a short time/position cooldown
-        # prevents one continuously visible face from creating an event
-        # every frame while still allowing a face to reach recognition.
-        for detection in quality_detections:
-            if not self._should_publish_recognition_event(detection, now):
-                continue
-
-            crop = self._crop_face(frame.image, detection.bbox)
-            if crop is None:
-                continue
-
-            track_id = f"face_recognition:{self._job.camera_id}:{frame.frame_id}"
-            upload_info = self._frame_uploader.upload_face_crop(
-                self._worker_key,
-                frame.frame_id,
-                track_id,
-                crop,
-            )
-            if upload_info is None:
-                continue
-
-            object_key, url = upload_info
-            crop_height, crop_width = (int(v) for v in crop.shape[:2])
-            telemetry = group_detections(
-                [detection],
-                self._job,
-                tracking_id=track_id,
-            )
-            result = DetectionResult(
-                job_id=self._job.job_id,
-                frame_id=frame.frame_id,
-                occurred_at=ist_now_iso(),
-                device_name=self._identity.device_name,
-                branch_id=self._job.branch_id,
-                branch_name=self._job.branch_name,
-                device_id=self._identity.device_id,
-                zone_id=self._job.zone_id,
-                zone_name=self._job.zone_name,
-                camera_id=self._job.camera_id,
-                camera_name=self._job.camera_name,
-                camera_stream=self._job.camera_stream,
-                camera_status=self._frame_reader.get_status(),
-                latitude=self._job.latitude,
-                longitude=self._job.longitude,
-                telemetry=telemetry,
-                object_key=object_key,
-                url=url,
-                width=crop_width,
-                height=crop_height,
-            )
-            self._detection_publisher.publish_detection(result)
-
         if detections:
             self._video_manager.feed_frame(draw_detections(frame.image, detections))
+
+    def _enqueue_latest_recognition(self, frame, detections) -> None:
+        item = (frame, detections)
+        try:
+            self._recognition_queue.put_nowait(item)
+            return
+        except Full:
+            pass
+        try:
+            self._recognition_queue.get_nowait()
+        except Empty:
+            pass
+        try:
+            self._recognition_queue.put_nowait(item)
+        except Full:
+            pass
+
+    def _recognition_run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                frame, detections = self._recognition_queue.get(timeout=0.2)
+            except Empty:
+                continue
+            try:
+                embedded = self._embedder.attach(frame.image, detections)
+                now = time.monotonic()
+                for detection in embedded:
+                    if detection.extra.get("face_visible") is not True:
+                        continue
+                    if not self._should_publish_recognition_event(detection, now):
+                        continue
+                    crop = self._crop_face(frame.image, detection.bbox)
+                    if crop is None:
+                        continue
+                    track_id = f"face_recognition:{self._job.camera_id}:{frame.frame_id}"
+                    upload_info = self._frame_uploader.upload_face_crop(
+                        self._worker_key, frame.frame_id, track_id, crop
+                    )
+                    if upload_info is None:
+                        continue
+                    object_key, url = upload_info
+                    crop_height, crop_width = (int(v) for v in crop.shape[:2])
+                    telemetry = group_detections([detection], self._job, tracking_id=track_id)
+                    result = DetectionResult(
+                        job_id=self._job.job_id,
+                        frame_id=frame.frame_id,
+                        occurred_at=ist_now_iso(),
+                        device_name=self._identity.device_name,
+                        branch_id=self._job.branch_id,
+                        branch_name=self._job.branch_name,
+                        device_id=self._identity.device_id,
+                        zone_id=self._job.zone_id,
+                        zone_name=self._job.zone_name,
+                        camera_id=self._job.camera_id,
+                        camera_name=self._job.camera_name,
+                        camera_stream=self._job.camera_stream,
+                        camera_status=self._frame_reader.get_status(),
+                        latitude=self._job.latitude,
+                        longitude=self._job.longitude,
+                        telemetry=telemetry,
+                        object_key=object_key,
+                        url=url,
+                        width=crop_width,
+                        height=crop_height,
+                    )
+                    self._detection_publisher.publish_detection(result)
+            except Exception:
+                self._log.exception(
+                    "latest-frame face recognition failed for frame_id=%s",
+                    getattr(frame, "frame_id", None),
+                )
 
     def _should_publish_recognition_event(self, detection, now: float) -> bool:
         x1, y1, x2, y2 = detection.bbox
