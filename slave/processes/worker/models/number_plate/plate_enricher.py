@@ -45,6 +45,7 @@ class PlateEnricher:
         self._tracker = PlateTracker(
             max_match_distance=float(tracking_cfg.get("max_match_distance_px", 90)),
             max_missed_frames=int(tracking_cfg.get("max_missed_frames", 20)),
+            max_track_gap_seconds=float(tracking_cfg.get("max_track_gap_seconds", 1.5)),
         )
 
         self._publish_queue: List[Detection] = []
@@ -58,8 +59,18 @@ class PlateEnricher:
                 **kwargs,
             )
 
-    def enrich(self, frame: np.ndarray, detections: List[Detection], frame_number: int) -> List[Detection]:
-        pairs = self._tracker.update(detections)
+    def enrich(
+        self,
+        frame: np.ndarray,
+        detections: List[Detection],
+        frame_number: int,
+        frame_timestamp: float = 0.0,
+    ) -> List[Detection]:
+        pairs = self._tracker.update(
+            detections,
+            frame_number=frame_number,
+            timestamp=float(frame_timestamp),
+        )
         enriched: List[Detection] = []
         if detections:
             log.info(
