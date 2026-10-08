@@ -72,13 +72,6 @@ class PlateEnricher:
             timestamp=float(frame_timestamp),
         )
         enriched: List[Detection] = []
-        if detections:
-            log.info(
-                "PT plate detection: frame=%s count=%s boxes=%s",
-                frame_number,
-                len(detections),
-                [tuple(round(v, 1) for v in d.bbox) for d in detections],
-            )
         self._publish_queue = []
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if self._ocr is not None and pairs else None
 
@@ -89,15 +82,6 @@ class PlateEnricher:
                 plate, score, valid, _ = self._ocr.read_plate(gray, detection.bbox)
                 accepted = bool(plate) and score >= self._min_score
                 format_ok = accepted and (not self._validate_indian_plate or valid)
-                log.info(
-                    "PT OCR: frame=%s track=%s plate=%r score=%.3f accepted=%s format_ok=%s",
-                    frame_number,
-                    track.track_id,
-                    plate,
-                    score,
-                    accepted,
-                    format_ok,
-                )
                 if accepted and format_ok:
                     track.record_ocr(plate, score, self._max_vote_history)
                 else:
@@ -124,14 +108,6 @@ class PlateEnricher:
             if confirmed and not track.published:
                 track.published = True
                 self._publish_queue.append(enriched_detection)
-                log.info(
-                    "PT PLATE CONFIRMED/PUBLISHABLE: frame=%s track=%s plate=%s score=%.3f confirmations=%s",
-                    frame_number,
-                    track.track_id,
-                    track.current_text,
-                    track.current_score,
-                    track.confirmation_count,
-                )
         return enriched
 
     def take_publishable(self) -> List[Detection]:
