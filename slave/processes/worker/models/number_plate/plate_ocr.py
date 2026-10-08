@@ -191,8 +191,9 @@ class PlateOcr:
         l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         l = clahe.apply(l)
-        result = cv2.merge((l, a, b))
-        return cv2.cvtColor(result, cv2.COLOR_LAB2GRAY)
+        # The enhanced L channel is already a single-channel grayscale image.
+        # OpenCV has no COLOR_LAB2GRAY conversion constant.
+        return l
 
     @staticmethod
     def _order_points(points):
