@@ -14,8 +14,6 @@ from typing import Optional
 import cv2 as cv
 import numpy as np
 
-from slave.processes.worker.models.face.embedding.face_image_enhancer import enhance_face
-
 
 class FaceEnrollmentProcessor:
     def __init__(self, models_root: str) -> None:
@@ -75,7 +73,6 @@ class FaceEnrollmentProcessor:
                 frame,
                 face[:-1].astype(np.float32),
             )
-            aligned = enhance_face(aligned)
             feature = self._recognizer.feature(aligned)
             if feature is None or feature.size == 0:
                 return {"ok": False, "reason": "embedding_failed"}
@@ -87,13 +84,12 @@ class FaceEnrollmentProcessor:
             # Store the same raw SFace vector format as live recognition.
             embedding = [round(float(value), 6) for value in vector]
 
-            # Return the same-size enhanced enrollment crop so the
-            # visible profile photo also benefits from the cleanup.
+            # Store the original aligned face exactly as captured; no
+            # brightness, contrast, CLAHE, sharpening, or color enhancement.
             aligned = self._recognizer.alignCrop(
                 frame,
                 face[:-1].astype(np.float32),
             )
-            aligned = enhance_face(aligned)
             ok, encoded = cv.imencode(
                 ".jpg",
                 aligned,
