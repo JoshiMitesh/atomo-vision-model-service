@@ -141,4 +141,5 @@ npu_ocr:
 # every frame -- ported from the reference's PlateTrack/update_tracks.
 tracking:
   max_match_distance_px: 90
-  max_missed_frames: 15   # lowered from 20 (alpr_rtsp.py)
+  max_missed_frames: 15   # fallback only when capture timestamps are unavailable
+  max_track_gap_seconds: 1.5  # brief detector gap; longer disappearance starts a new event
