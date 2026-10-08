@@ -86,6 +86,7 @@ class PlateTrack:
     # enough to publish yet (config/models/number_plate.yaml's
     # `ocr.min_confirmations`).
     confirmation_count: int = 0
+    published: bool = False
     _reads: List[Tuple[str, float]] = field(default_factory=list)
 
     def record_ocr(self, text: str, score: float, max_history: int) -> None:
