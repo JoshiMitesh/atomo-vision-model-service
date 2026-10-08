@@ -110,12 +110,11 @@ class NumberPlateNbWorker:
     def _process_frame(self, frame) -> None:
         raw_detections = self._detector.detect(frame.image)
         plate_detections = self._enricher.enrich(frame.image, raw_detections, frame.frame_id)
-        event_plates = self._enricher.take_publishable()
 
         # Only plates whose number was actually read are published (and
         # uploaded) -- an unread plate would just be a null plate_number
         # event. Video still records every detected plate.
-        readable_plates = event_plates
+        readable_plates = [d for d in plate_detections if d.extra.get("plate_number")]
 
         object_key = url = None
         annotated = None
