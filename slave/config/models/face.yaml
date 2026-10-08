@@ -41,7 +41,7 @@ embedding:
   landmark_top_k: 5000
 
 yunet:
-  score_thresh: 0.70
+  score_thresh: 0.55
   nms_thresh: 0.30
   top_k: 5000
 
