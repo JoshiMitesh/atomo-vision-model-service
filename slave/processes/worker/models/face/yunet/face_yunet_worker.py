@@ -12,6 +12,7 @@ SFace remains internal to the embedding wrapper.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 import threading
 
@@ -118,6 +119,43 @@ class FaceYunetWorker:
         ]
 
         self._face_tracker.track_detections(quality_detections)
+
+        # Publish lightweight face boxes on every frame for the live overlay.
+        # Do not attach embeddings/media here: these messages are transport-only
+        # live detection and must never create/learn a recognition profile.
+        if detections:
+            live_detections = [
+                replace(detection, extra={})
+                for detection in detections
+            ]
+            live_telemetry = group_detections(
+                live_detections,
+                self._job,
+                tracking_id=f"face_live:{self._job.camera_id}",
+            )
+            live_telemetry = [
+                replace(telemetry, event_type="face_detected")
+                for telemetry in live_telemetry
+            ]
+            live_result = DetectionResult(
+                job_id=self._job.job_id,
+                frame_id=frame.frame_id,
+                occurred_at=ist_now_iso(),
+                device_name=self._identity.device_name,
+                branch_id=self._job.branch_id,
+                branch_name=self._job.branch_name,
+                device_id=self._identity.device_id,
+                zone_id=self._job.zone_id,
+                zone_name=self._job.zone_name,
+                camera_id=self._job.camera_id,
+                camera_name=self._job.camera_name,
+                camera_stream=self._job.camera_stream,
+                camera_status=self._frame_reader.get_status(),
+                latitude=self._job.latitude,
+                longitude=self._job.longitude,
+                telemetry=live_telemetry,
+            )
+            self._detection_publisher.publish_detection(live_result)
 
         # Publish/upload only when a face track first appears. A continuously
         # visible face therefore produces one event and one MinIO face crop.
