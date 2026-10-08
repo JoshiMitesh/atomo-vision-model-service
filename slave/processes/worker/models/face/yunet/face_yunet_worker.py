@@ -66,17 +66,6 @@ class FaceYunetWorker:
             yunet_model_name=assignment.model_name,
         )
 
-        # Keep the exact tracking/event behavior used by the existing
-        # standalone .pt face worker. Tracking is camera/job-local and a
-        # continuously visible face creates only one new-face event until
-        # its track expires.
-        self._face_tracker = FaceController(
-            job_id=job.job_id,
-            detector_factory=lambda: self._detector,
-            off_timeout_sec=0,
-            enabled=True,
-        )
-
         self._frame_reader = FrameReader(worker_key, job.camera_stream)
 
         self._stop_event = threading.Event()
@@ -118,8 +107,6 @@ class FaceYunetWorker:
             if passes_face_quality_gate(detection)
         ]
 
-        self._face_tracker.track_detections(quality_detections)
-
         # Publish lightweight face boxes on every frame for the live overlay.
         # Do not attach embeddings/media here: these messages are transport-only
         # live detection and must never create/learn a recognition profile.
@@ -159,53 +146,9 @@ class FaceYunetWorker:
             )
             self._detection_publisher.publish_detection(live_result)
 
-        # Publish/upload only when a face track first appears. A continuously
-        # visible face therefore produces one event and one MinIO face crop.
-        for detection, track_id in self._face_tracker.new_face_events:
-            crop = self._crop_face(frame.image, detection.bbox)
-            if crop is None:
-                continue
-
-            upload_info = self._frame_uploader.upload_face_crop(
-                self._worker_key,
-                frame.frame_id,
-                track_id,
-                crop,
-            )
-            if upload_info is None:
-                continue
-
-            object_key, url = upload_info
-            crop_height, crop_width = (int(v) for v in crop.shape[:2])
-            telemetry = group_detections(
-                [detection],
-                self._job,
-                tracking_id=track_id,
-            )
-
-            result = DetectionResult(
-                job_id=self._job.job_id,
-                frame_id=frame.frame_id,
-                occurred_at=ist_now_iso(),
-                device_name=self._identity.device_name,
-                branch_id=self._job.branch_id,
-                branch_name=self._job.branch_name,
-                device_id=self._identity.device_id,
-                zone_id=self._job.zone_id,
-                zone_name=self._job.zone_name,
-                camera_id=self._job.camera_id,
-                camera_name=self._job.camera_name,
-                camera_stream=self._job.camera_stream,
-                camera_status=self._frame_reader.get_status(),
-                latitude=self._job.latitude,
-                longitude=self._job.longitude,
-                telemetry=telemetry,
-                object_key=object_key,
-                url=url,
-                width=crop_width,
-                height=crop_height,
-            )
-            self._detection_publisher.publish_detection(result)
+        # Recognition/profile work is handled separately from the live
+        # detection stream. Every detected face is sent to the live overlay;
+        # no tracker is used to decide whether a bbox is published.
 
         if detections:
             self._video_manager.feed_frame(draw_detections(frame.image, detections))
@@ -262,10 +205,6 @@ class FaceYunetWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._face_tracker.release()
-        except Exception:
-            self._log.exception("error releasing face tracker")
         try:
             self._detector.release()
         except Exception:
