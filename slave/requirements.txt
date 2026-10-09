@@ -7,8 +7,8 @@ minio>=7.2
 psutil>=5.9   # device telemetry/heartbeat (processes/device/); falls back to timestamp-only if absent
 
 # Person .pt runtime only. Not required for .nb/.so-only NPU deployments.
-ultralytics>=8.2
-torch>=2.1
+#ultralytics>=8.2
+#torch>=2.1
 
 # Number-Plate OCR (plate_ocr.py). Only required when config/models/
 # number_plate.yaml has `ocr.enabled: true` (the default) -- plate
