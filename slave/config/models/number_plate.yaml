@@ -47,6 +47,12 @@ input:
   pad_value: 114
 
 pt:
+  filters:
+    min_plate_width_px: 45
+    min_plate_height_px: 15
+    min_plate_aspect: 2.0
+    max_plate_aspect: 8.0
+    min_plate_area_ratio: 0.00005
   # Resolved flat against processes/worker/models/number_plate/ (same
   # convention as person.pt/fire.pt).
   model_file: number_plate.pt
@@ -96,46 +102,15 @@ so:
 # every raw detection every frame.
 ocr:
   enabled: true
-  # fast-plate-ocr model (plate_ocr.py) -- NOT the PaddleOCR name the NPU
-  # path's npu_ocr: block still uses. Any other value here fails at worker
-  # start with "Unknown model".
-  model_name: cct-s-v2-global-model
-  interval_frames: 5       # run OCR at most every Nth frame per track
-  search_interval_frames: 1   # ...but every frame until a track has its first accepted read
-  # Raised from 0.70: on the cam06 test videos every correct read scored
-  # >= 0.93 while the wrong plates that still got through scored 0.78 or
-  # lower (a low-confidence read whose clipped/garbled characters happened
-  # to form a valid-looking plate).
-  min_score: 0.85            # OCR results below this score are rejected outright
+  model_name: PP-OCRv5_mobile_rec
+  interval_frames: 5
+  search_interval_frames: 5
+  min_score: 0.45
   rectified_width_px: 320
   rectified_height_px: 80
-  # Frames of accepted-read history kept per track for the
-  # score-weighted per-character consensus vote (plate_tracker.py's
-  # _consensus()) -- NOT a most-frequent-exact-text vote; live testing
-  # showed consecutive reads of the same real plate rarely repeat the
-  # identical full string (character confusions like G/6, R/2, 8/0
-  # differ every frame, usually at a different position each time), so
-  # per-character voting is what actually recovers the correct plate
-  # from noisy reads (see plate_tracker.py's module docstring for its
-  # real limitation: it can't out-vote an error the OCR model makes
-  # consistently at the same position across most reads).
   max_vote_history: 30
-  # plate_number/plate_confidence stay null until at least this many
-  # accepted reads have gone into the consensus vote above. Left at 1:
-  # live testing showed a real, legible plate often gets exactly one
-  # score+format-valid read across its whole time in frame (OCR noise
-  # fails the format check on most attempts) -- score+format validation
-  # already does the heavy lifting against garbage, so requiring a
-  # second valid read on top routinely made correct reads
-  # un-publishable. Raise to 2+ only if false positives (wrong-but-
-  # valid-format reads) turn out to be a problem in practice.
-  min_confirmations: 1
-  # Reject OCR text that isn't a valid Indian registration plate format
-  # (plate_format.py) before it's even added to a track's vote history --
-  # ported from alpr_rtsp.py's is_valid_indian_plate(). Set false for a
-  # deployment where plates aren't Indian-format.
+  min_confirmations: 2
   validate_indian_plate: true
-
 # Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
 # ported from the board-verified alpr_npu.py (npu_plate_enricher.py).
 # The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
@@ -166,4 +141,5 @@ npu_ocr:
 # every frame -- ported from the reference's PlateTrack/update_tracks.
 tracking:
   max_match_distance_px: 90
-  max_missed_frames: 15   # lowered from 20 (alpr_rtsp.py)
+  max_missed_frames: 15   # fallback only when capture timestamps are unavailable
+  max_track_gap_seconds: 1.5  # brief detector gap; longer disappearance starts a new event

@@ -37,7 +37,7 @@ class NumberPlatePtDetector:
         self._obj_thresh = float(thresholds.get("obj_thresh", 0.55))
         self._nms_thresh = float(thresholds.get("nms_thresh", 0.45))
 
-        filters = model_config.get("filters", {})
+        filters = model_config.get("pt", {}).get("filters", model_config.get("filters", {}))
         self._min_w = float(filters.get("min_plate_width_px", 45))
         self._min_h = float(filters.get("min_plate_height_px", 15))
         self._min_aspect = float(filters.get("min_plate_aspect", 2.0))

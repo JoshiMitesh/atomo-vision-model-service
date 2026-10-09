@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -55,12 +56,17 @@ class NumberPlatePtWorker:
         self._enricher = PlateEnricher(model_config)
 
         url = job.camera_stream
-        self._frame_reader = FrameReader(worker_key, url)
+        # PT must always work from the newest available frame. The reader keeps a
+        # single-slot latest-frame queue, so slow OCR never creates a backlog of stale frames.
+        # Keep PT frame acquisition independent from the NB/SO/NPU workers.
+        self._frame_reader = FrameReader(worker_key, url, decode_every_n_frames=1)
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run, name=f"number-plate-pt-{worker_key}", daemon=True
         )
+        self._speed_window_start = time.monotonic()
+        self._speed_window_frames = 0
 
     def start(self) -> None:
         self._frame_reader.start()
@@ -88,12 +94,18 @@ class NumberPlatePtWorker:
 
     def _process_frame(self, frame) -> None:
         raw_detections = self._detector.detect(frame.image)
-        plate_detections = self._enricher.enrich(frame.image, raw_detections, frame.frame_id)
+        plate_detections = self._enricher.enrich(
+            frame.image,
+            raw_detections,
+            frame.frame_id,
+            frame_timestamp=frame.timestamp,
+        )
+        event_plates = self._enricher.take_publishable()
 
         # Only plates whose number was actually read are published (and
         # uploaded) -- an unread plate would just be a null plate_number
         # event. Video still records every detected plate.
-        readable_plates = [d for d in plate_detections if d.extra.get("plate_number")]
+        readable_plates = event_plates
 
         object_key = url = None
         annotated = None
@@ -136,6 +148,24 @@ class NumberPlatePtWorker:
 
         if plate_detections:
             self._video_manager.feed_frame(annotated)
+
+        # PT deliberately does not sleep to a fixed FPS. The reader keeps
+        # only the newest frame, so inference stays real-time instead of
+        # building a stale queue. Log both rates to verify live behaviour.
+        self._speed_window_frames += 1
+        elapsed = time.monotonic() - self._speed_window_start
+        if elapsed >= 2.0:
+            processing_fps = self._speed_window_frames / elapsed
+            capture_fps = self._frame_reader.get_capture_fps()
+            source_lag = max(0.0, time.time() - float(frame.timestamp))
+            self._log.info(
+                "PT speed: capture_fps=%.1f processing_fps=%.1f source_lag=%.3fs latest_frame=true",
+                capture_fps,
+                processing_fps,
+                source_lag,
+            )
+            self._speed_window_frames = 0
+            self._speed_window_start = time.monotonic()
 
     def _cleanup(self) -> None:
         try:

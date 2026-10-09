@@ -45,8 +45,10 @@ class PlateEnricher:
         self._tracker = PlateTracker(
             max_match_distance=float(tracking_cfg.get("max_match_distance_px", 90)),
             max_missed_frames=int(tracking_cfg.get("max_missed_frames", 20)),
+            max_track_gap_seconds=float(tracking_cfg.get("max_track_gap_seconds", 1.5)),
         )
 
+        self._publish_queue: List[Detection] = []
         self._ocr = None
         if bool(ocr_cfg.get("enabled", True)):
             kwargs = {}
@@ -57,9 +59,20 @@ class PlateEnricher:
                 **kwargs,
             )
 
-    def enrich(self, frame: np.ndarray, detections: List[Detection], frame_number: int) -> List[Detection]:
-        pairs = self._tracker.update(detections)
+    def enrich(
+        self,
+        frame: np.ndarray,
+        detections: List[Detection],
+        frame_number: int,
+        frame_timestamp: float = 0.0,
+    ) -> List[Detection]:
+        pairs = self._tracker.update(
+            detections,
+            frame_number=frame_number,
+            timestamp=float(frame_timestamp),
+        )
         enriched: List[Detection] = []
+        self._publish_queue = []
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if self._ocr is not None and pairs else None
 
         for detection, track in pairs:
@@ -84,16 +97,23 @@ class PlateEnricher:
             # consensus across every accepted read so far (see
             # plate_tracker.py's _consensus()).
             confirmed = track.current_text and track.confirmation_count >= self._min_confirmations
-            enriched.append(
-                replace(
-                    detection,
-                    extra={
-                        "plate_number": track.current_text if confirmed else None,
-                        "plate_confidence": track.current_score if confirmed else None,
-                    },
-                )
+            enriched_detection = replace(
+                detection,
+                extra={
+                    "plate_number": track.current_text if confirmed else None,
+                    "plate_confidence": track.current_score if confirmed else None,
+                },
             )
+            enriched.append(enriched_detection)
+            if confirmed and not track.published:
+                track.published = True
+                self._publish_queue.append(enriched_detection)
         return enriched
+
+    def take_publishable(self) -> List[Detection]:
+        queued = self._publish_queue
+        self._publish_queue = []
+        return queued
 
     def release(self) -> None:
         if self._ocr is not None:
