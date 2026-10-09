@@ -459,10 +459,15 @@ class FaceEmbedder:
             mouth_y = float((points[3, 1] + points[4, 1]) * 0.5)
             relative_mouth_y = (mouth_y - y1) / max(1.0, float(y2 - y1))
 
+            # A coherent edge through the lower/middle face usually means
+            # a laptop/monitor is covering the mouth and chin. Use a more
+            # conservative threshold: false rejection costs one event, while
+            # accepting an occluded crop pollutes the person's cluster.
+            edge_y = best_y / max(1.0, float(h))
             if (
-                best_ratio >= 0.58
-                and 0.30 <= best_y / max(1.0, float(h)) <= 0.70
-                and relative_mouth_y >= 0.52
+                best_ratio >= 0.42
+                and 0.28 <= edge_y <= 0.82
+                and relative_mouth_y >= 0.38
             ):
                 return False
 
@@ -496,8 +501,10 @@ class FaceEmbedder:
 
             return True
         except Exception:
-            # Quality filtering must never crash face recognition.
-            return True
+            # Fail closed: if visibility could not be evaluated, do not let
+            # this crop become a recognition event or a training photo.
+            log.debug("face visibility check failed; rejecting recognition crop", exc_info=True)
+            return False
 
     def _embed(
         self,
