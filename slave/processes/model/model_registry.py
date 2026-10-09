@@ -2,11 +2,12 @@
 
 The registry is deliberately dumb: it just maps supported combinations
 to the callable that builds the right worker class. `person`,
-standalone `face`, `safety`, standalone `fire`, and standalone
-`number_plate` are registered today; `fight` is rejected until
-implemented (CLAUDE.md §7, §22 — note Face/Safety/Fire/Number-Plate
-going standalone here are deliberate, explicitly-requested exceptions
-to CLAUDE.md's "Person only" scope, not a silent expansion).
+standalone `face`, `safety`, standalone `fire`, standalone
+`number_plate`, and standalone `vehicle` are registered today; `fight`
+is rejected until implemented (CLAUDE.md §7, §22 — note
+Face/Safety/Fire/Number-Plate/Vehicle going standalone here are
+deliberate, explicitly-requested exceptions to CLAUDE.md's "Person
+only" scope, not a silent expansion).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from typing import Callable, Dict, Tuple
 
 WorkerBuilder = Callable[..., object]
 
-SUPPORTED_MODEL_TYPES = ("person", "face", "safety", "fire", "number_plate")
+SUPPORTED_MODEL_TYPES = ("person", "face", "safety", "fire", "number_plate", "vehicle")
 SUPPORTED_EXTENSIONS = (".pt", ".nb", ".so", ".onnx")
 
 
@@ -65,6 +66,9 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     from slave.processes.worker.models.number_plate.pt.number_plate_pt_worker import NumberPlatePtWorker
     from slave.processes.worker.models.number_plate.nb.number_plate_nb_worker import NumberPlateNbWorker
     from slave.processes.worker.models.number_plate.so.number_plate_so_worker import NumberPlateSoWorker
+    from slave.processes.worker.models.vehicle.pt.vehicle_pt_worker import VehiclePtWorker
+    from slave.processes.worker.models.vehicle.nb.vehicle_nb_worker import VehicleNbWorker
+    from slave.processes.worker.models.vehicle.so.vehicle_so_worker import VehicleSoWorker
 
     registry = ModelRegistry() # creates a new ModelRegistry instance
     registry.register("person", ".pt", PersonPtWorker) # model_type is "person", model_extension is ".pt", and the corresponding worker builder is PersonPtWorker. This registers the PersonPtWorker class as the worker builder for the combination of model_type "person" and model_extension ".pt".
@@ -83,4 +87,7 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     registry.register("number_plate", ".pt", NumberPlatePtWorker)   # standalone ALPR job — single-class plate detector + PaddleOCR text read (plate_enricher.py), no face_controller.
     registry.register("number_plate", ".nb", NumberPlateNbWorker)   # same own-handle/own-thread shape as FireNbWorker; decode in number_plate/npu_decoder.py.
     registry.register("number_plate", ".so", NumberPlateSoWorker)   # same not-yet-functional SoRuntime caveat as every other .so path.
+    registry.register("vehicle", ".pt", VehiclePtWorker)   # standalone vehicle job — 9-class detector (car/bus/truck/motorcycle/other + helmet/seatbelt variants filtered via ignore_classes), no face_controller.
+    registry.register("vehicle", ".nb", VehicleNbWorker)   # same own-handle/own-thread shape as FireNbWorker; decode math is a placeholder pending a real vehicle.nb + reference script, see vehicle_nb_detector.py.
+    registry.register("vehicle", ".so", VehicleSoWorker)   # same not-yet-functional SoRuntime caveat as every other .so path.
     return registry # returns the fully constructed ModelRegistry instance with the registered worker builders for the supported (model_type, model_extension) combinations.
