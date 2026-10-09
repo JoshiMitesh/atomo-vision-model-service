@@ -113,19 +113,29 @@ class FaceYunetWorker:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
-        # YuNet detections are the event source. Do not apply an additional
-        # face-quality/landmark gate here: every detector hit is a face event.
+        # Keep detector output for the live overlay, but only allow crops
+        # that passed the SFace/YuNet landmark visibility gate into persistent
+        # face events, tracking, and the training gallery. If embeddings are
+        # unavailable, fail closed for gallery writes rather than saving
+        # arbitrary detector false positives as face photos.
         detections = self._detector.detect(frame.image)
-        quality_detections = detections
+        quality_detections = [
+            detection
+            for detection in detections
+            if detection.extra.get("face_visible") is True
+            and detection.embedding is not None
+        ]
 
-        tracked_detections = self._face_tracker.track_detections_with_ids(detections)
+        tracked_detections = self._face_tracker.track_detections_with_ids(
+            quality_detections
+        )
 
         # Keep the live UI overlay current without turning every video frame
         # into a persisted Master event or an email alert.
         now = time.monotonic()
-        if quality_detections and now - self._last_live_publish >= self._live_publish_interval:
+        if detections and now - self._last_live_publish >= self._live_publish_interval:
             live_telemetry = group_detections(
-                quality_detections,
+                detections,
                 self._job,
                 tracking_id=(
                     tracked_detections[0][1] if len(tracked_detections) == 1 else None
