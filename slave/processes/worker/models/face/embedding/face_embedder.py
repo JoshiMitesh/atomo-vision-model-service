@@ -372,11 +372,11 @@ class FaceEmbedder:
         # on hand/keyboard patterns.  Require a tighter, internally
         # consistent five-point facial layout before SFace is allowed to
         # create an embedding.
-        if not 0.18 * w <= eye_gap <= 0.60 * w:
+        if not 0.14 * w <= eye_gap <= 0.65 * w:
             return False
-        if not 0.10 * w <= mouth_gap <= 0.45 * w:
+        if not 0.07 * w <= mouth_gap <= 0.50 * w:
             return False
-        if not 1.25 <= eye_gap / max(mouth_gap, 1.0) <= 5.0:
+        if not 1.0 <= eye_gap / max(mouth_gap, 1.0) <= 6.0:
             return False
 
         eye_mid_x = float((right_eye[0] + left_eye[0]) * 0.5)
@@ -396,13 +396,13 @@ class FaceEmbedder:
 
         eye_to_nose = (float(nose[1]) - eye_mid_y) / max(h, 1.0)
         nose_to_mouth = (mouth_mid_y - float(nose[1])) / max(h, 1.0)
-        if not 0.16 <= eye_to_nose <= 0.42:
+        if not 0.12 <= eye_to_nose <= 0.48:
             return False
-        if not 0.08 <= nose_to_mouth <= 0.26:
+        if not 0.05 <= nose_to_mouth <= 0.31:
             return False
 
         face_aspect = w / max(h, 1.0)
-        if not 0.65 <= face_aspect <= 1.20:
+        if not 0.55 <= face_aspect <= 1.35:
             return False
 
         return True
