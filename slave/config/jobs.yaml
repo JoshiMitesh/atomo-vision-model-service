@@ -1,20 +1,20 @@
 jobs:
-  - job_id: job_001
-    branch_id: branch_01
-    branch_name: Main Branch
-    camera_id: bbc8dca4-be94-45e9-a804-af6adaa8252a
-    camera_name: paldi char rasta
-    camera_stream: rtsp://192.168.1.38:8554/test
-    zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
-    zone_name: office
-    latitude: 23.0555
-    longitude: 72.5714
-    location: Main Entrance krish , Ahmedabad
-    model_assignments:
-      - model_type: number_plate
-        model_name: number_plate.pt
-        camera_model_assign_id: e2e8ba51-dc43-4fe1-8a85-4995548c41fe
-        model_id: ecb8e711-040d-476a-8717-9a009fe3086a
+#  - job_id: job_001
+#    branch_id: branch_01
+#    branch_name: Main Branch
+#    camera_id: bbc8dca4-be94-45e9-a804-af6adaa8252a
+#    camera_name: paldi char rasta
+#    camera_stream: rtsp://192.168.1.38:8554/test
+#    zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
+#    zone_name: office
+#    latitude: 23.0555
+#    longitude: 72.5714
+#    location: Main Entrance krish , Ahmedabad
+#    model_assignments:
+#      - model_type: number_plate
+#        model_name: number_plate.pt
+#        camera_model_assign_id: e2e8ba51-dc43-4fe1-8a85-4995548c41fe
+#        model_id: ecb8e711-040d-476a-8717-9a009fe3086a
   - job_id: job_002
     branch_id: branch_01
     branch_name: Main Branch

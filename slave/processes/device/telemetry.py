@@ -94,7 +94,7 @@ def _job_stats(jobs_yaml_path: Optional[str], runtime: Optional[RuntimeStatus] =
         {
             "camera_id": job.camera_id,
             "camera_name": job.camera_name,
-            "status": runtime.camera_status(job.job_id) if runtime is not None else "offline",
+            "status": runtime.camera_status(job.job_id, job.camera_stream) if runtime is not None else "offline",
             "latitude": job.latitude,
             "longitude": job.longitude,
             "location": job.location,
