@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from slave.processes.device.camera_probe import CameraProbe
 from slave.processes.worker.worker_manager import WorkerManager
 
 MAX_ERROR_LENGTH = 300
@@ -35,6 +36,7 @@ class _Entry:
 class RuntimeStatus:
     def __init__(self, worker_manager: WorkerManager) -> None:
         self._worker_manager = worker_manager
+        self._probe = CameraProbe()
         self._lock = threading.Lock()
         self._entries: Dict[str, List[_Entry]] = {}
         self._failed: Dict[str, List[dict]] = {}  # assignments that never produced a worker
@@ -64,6 +66,7 @@ class RuntimeStatus:
                     entry.died_at = None
 
     def job_removed(self, job_id: str) -> None:
+        self._probe.forget(job_id)
         with self._lock:
             self._entries.pop(job_id, None)
             self._failed.pop(job_id, None)
@@ -123,6 +126,14 @@ class RuntimeStatus:
                         failed.append(self._failure(job_id, entry.model_type, entry.model_name, "worker stopped unexpectedly", entry.died_at))
         return running, failed
 
-    def camera_status(self, job_id: str) -> str:
-        """'online' / 'offline' — read from the live RTSP connection."""
-        return self._worker_manager.camera_status(job_id)
+    def camera_status(self, job_id: str, stream_url: str) -> str:
+        """'online' / 'offline', independent of whether any model runs.
+
+        A worker's live RTSP connection is used when it reports online.
+        Otherwise (no worker because the model failed to build/start, or
+        the worker's stream is down) the stream is probed directly, so a
+        healthy camera with a broken model still shows online.
+        """
+        if self._worker_manager.camera_status(job_id) == "online":
+            return "online"
+        return self._probe.status(job_id, stream_url)
