@@ -121,6 +121,42 @@ class FaceController:
 
         return tracked
 
+    def track_detections_with_ids(self, detections: List[Detection]) -> List[Tuple[Detection, str]]:
+        """Associate every detector hit with a persistent camera-local track ID."""
+        now = monotonic()
+        self._new_track_ids = []
+        self._new_face_events = []
+
+        for track_id, (_, last_seen) in list(self._tracks.items()):
+            if now - last_seen >= self._track_timeout_sec:
+                del self._tracks[track_id]
+
+        tracked: List[Tuple[Detection, str]] = []
+        used_tracks: set[str] = set()
+        for detection in detections:
+            best_id: Optional[str] = None
+            best_iou = 0.0
+            for track_id, (old_bbox, _) in self._tracks.items():
+                if track_id in used_tracks:
+                    continue
+                score = self._bbox_iou(old_bbox, detection.bbox)
+                if score > best_iou:
+                    best_iou = score
+                    best_id = track_id
+
+            is_new = best_id is None or best_iou < self._track_iou_threshold
+            if is_new:
+                best_id = f"face_{uuid4().hex[:12]}"
+                self._new_track_ids.append(best_id)
+
+            self._tracks[best_id] = (detection.bbox, now)
+            used_tracks.add(best_id)
+            tracked.append((detection, best_id))
+            if is_new:
+                self._new_face_events.append((detection, best_id))
+
+        return tracked
+
     def track_detections(self, detections: List[Detection]) -> List[Detection]:
         """Track already-detected faces without requiring person gating."""
         now = monotonic()
