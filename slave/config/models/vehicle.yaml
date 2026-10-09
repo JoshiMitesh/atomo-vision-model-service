@@ -1,0 +1,98 @@
+# Static model configuration for model_type: vehicle.
+# jobs.yaml carries only *which* job/stream/model runs — permanent
+# model behaviour (classes, thresholds, resolution) belongs here.
+#
+# Standalone model (own jobs.yaml entries with model_type: "vehicle"),
+# same shape as config/models/fire.yaml — not person-chained/triggered,
+# and does NOT get a face_controller attached (worker_factory.py only
+# attaches one to "person"/"safety").
+
+model_type: vehicle
+
+# Published in every Detection's "model_name" field sent to the Master
+# (NATS cam.detection) — deliberately NOT the job's model filename. See
+# config/models/person.yaml's `display_name` comment for why.
+display_name: Vehicle
+
+# Order matches the trained model's class indices exactly — confirmed
+# against /home/savan-patel/yolo/four_class_dataset/data.yaml's
+# `names:` list. Do not reorder; a mismatch here silently mislabels
+# every detection.
+classes:
+  - Helmet
+  - bus
+  - car
+  - motorcycle
+  - no-seatbelt
+  - no_helmet
+  - other
+  - seatbelt
+  - truck
+num_classes: 9
+listsize: 73           # num_classes(9) + 64 DFL channels (reg_max=16) — only used by the nb/so path;
+                        # re-confirm against the real vehicle.nb's Detect head once that file exists.
+
+# Helmet/no_helmet/seatbelt/no-seatbelt are decoded (so NMS/geometry
+# still sees the full class set) but dropped before being returned to
+# the worker — never published, uploaded, or recorded. Set per
+# explicit request: only vehicle-type classes (car/bus/truck/
+# motorcycle) and the "other" hard-negative are meant to be visible.
+ignore_classes:
+  - Helmet
+  - no_helmet
+  - seatbelt
+  - no-seatbelt
+
+thresholds:
+  # Placeholder — copied from fire.yaml's defaults, not yet tuned
+  # against a real vehicle.pt/.nb. Re-verify once the trained model is
+  # in place.
+  obj_thresh: 0.25
+  nms_thresh: 0.45
+
+input:
+  # Placeholder — 640 is the common Ultralytics default; re-confirm
+  # against the real checkpoint's train_args (imgsz) once it exists,
+  # same as every other model.yaml's input: block documents doing.
+  default_size: 640
+  large_size: 1024
+  large_size_keyword: "1024"
+  pad_value: 114
+
+pt:
+  # Resolved flat against processes/worker/models/vehicle/ (same
+  # convention as fire.pt/person.pt).
+  model_file: vehicle.pt
+  device: auto          # auto | cpu | cuda:0
+  half: false
+
+nb:
+  # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
+  # level/device_id/board match this project's physically-confirmed
+  # board (hostname `electron`, ASNN SDK) — see person.yaml's nb:
+  # comment for how those were confirmed. Re-verify if ever deployed
+  # to a different board.
+  level: 0
+  device_id: 0
+  board: Electron
+  # Filename only, resolved against processes/worker/models/vehicle/
+  # (same directory as the .nb model file itself).
+  library_file: vehicle.so
+
+  # NB/SO-path-only detection tuning (vehicle_nb_detector.py /
+  # vehicle_so_detector.py — the .so path shares this same block).
+  # Placeholder values copied from fire.yaml's nb: block — re-tune once
+  # the real .nb file and its reference pipeline are available.
+  obj_thresh: 0.25
+  nms_thresh: 0.45
+  dfl_certainty_thresh: 0.05
+  min_aspect_ratio: 0.20
+  max_aspect_ratio: 5.0
+  min_box_size_ratio: 0.10
+  max_detections: 100
+
+so:
+  # Native .so inference library options (see runtimes/npu/so_runtime.py).
+  # Same "ABI not wired up yet" gap as every other model's .so path
+  # today (SoRuntime._init()/infer() raise NotImplementedError).
+  device_id: 0
