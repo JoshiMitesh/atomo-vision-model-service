@@ -65,6 +65,7 @@ class VideoConfig: # VideoConfig is a dataclass that holds the configuration for
     segment_seconds: int = 30
     temp_dir: str = "storage/tmp/video"
     fps: int = 15
+    enabled: bool = True # when false, VideoUploader skips the MinIO upload for every finished segment (still records/deletes locally) — independent of minio.enabled, which also gates frame uploads
 
 
 @dataclass(frozen=True)

@@ -62,7 +62,14 @@ def unletterbox_boxes(boxes_xyxy: np.ndarray, info: LetterboxInfo) -> np.ndarray
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-x))
+    # Clip before exp() so an out-of-range raw logit (e.g. from a
+    # decode/channel-layout mismatch on a not-yet-fully-verified .nb
+    # model) saturates to a negligibly-small/near-1 value instead of
+    # raising numpy's "overflow encountered in exp" RuntimeWarning.
+    # sigmoid(-60) ~= 8.76e-27 -- not literally 0.0, but well below any
+    # real obj/class threshold used anywhere in this codebase (all
+    # >= 0.05), so this changes nothing for any normal-range logit.
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -60.0, 60.0)))
 
 
 def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
