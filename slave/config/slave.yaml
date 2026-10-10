@@ -69,6 +69,8 @@ video:
   segment_seconds: 30
   temp_dir: storage/tmp/video
   fps: 10
+  enabled: false  # stop uploading 30-sec video segments to MinIO specifically — frame uploads
+                  # (minio.enabled above) are untouched; set true to resume video uploads
 
 logging:
   dir: logging_output
