@@ -93,7 +93,7 @@ def main() -> None:
 
     minio_client = MinioClientWrapper(config.minio) # creates a new MinioClientWrapper instance with the MinIO configuration, which is responsible for interacting with the MinIO object storage service
     frame_uploader = FrameUploader(minio_client) # creates a new FrameUploader instance with the MinioClientWrapper, responsible for uploading detected frames to MinIO. No longer takes upload_publisher — the frame's object_key/url are embedded directly into the DetectionResult by the worker instead of being published as a separate upload-started message.
-    video_uploader = VideoUploader(minio_client, upload_publisher) # creates a new VideoUploader instance with the MinioClientWrapper and UploadPublisher instances, which is responsible for uploading completed 30-second video segments to MinIO and publishing upload events to the Master over NATS.
+    video_uploader = VideoUploader(minio_client, upload_publisher, enabled=config.video.enabled) # creates a new VideoUploader instance with the MinioClientWrapper and UploadPublisher instances, which is responsible for uploading completed 30-second video segments to MinIO and publishing upload events to the Master over NATS. enabled=False stops video uploads specifically without touching frame uploads (minio.enabled).
 
     services = WorkerServices(
         models_root=os.path.join(REPO_ROOT, "processes", "worker", "models"), # models_root is the path to the directory where the worker models are stored, which is used by the WorkerServices to load and manage the models for inference.
