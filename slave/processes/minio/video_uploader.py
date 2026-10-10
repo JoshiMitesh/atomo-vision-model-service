@@ -12,12 +12,15 @@ log = get_logger(__name__) # get_logger is a function that returns a logger inst
 
 
 class VideoUploader: # VideoUploader is a class that handles the uploading of completed 30-second video segments to MinIO and publishes upload events to the Master over NATS.
-    def __init__(self, minio_client: MinioClientWrapper, upload_publisher: UploadPublisher) -> None: # initializes the VideoUploader with a MinioClientWrapper and an UploadPublisher
+    def __init__(
+        self, minio_client: MinioClientWrapper, upload_publisher: UploadPublisher, enabled: bool = True
+    ) -> None: # initializes the VideoUploader with a MinioClientWrapper and an UploadPublisher
         self._minio = minio_client # stores the MinioClientWrapper instance for uploading video segments to MinIO
         self._upload_publisher = upload_publisher # stores the UploadPublisher instance for publishing upload events to the Master over NATS
+        self._enabled = enabled # slave.yaml's video.enabled — independent of minio.enabled, which also gates frame uploads
 
     def upload_video_segment(self, job_id: str, local_path: str, segment_name: str) -> None: # uploads a completed 30-second video segment to MinIO and publishes an upload-started event to the Master over NATS. It takes the job_id, local_path of the video segment, and the segment_name as input.
-        if not self._minio.enabled:
+        if not self._minio.enabled or not self._enabled:
             # Still clean up the finished local segment file — CLAUDE.md
             # §18: a video failure/skip must not leave temp files behind
             # or corrupt jobs.yaml.
