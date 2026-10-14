@@ -69,6 +69,23 @@ class VideoConfig: # VideoConfig is a dataclass that holds the configuration for
 
 
 @dataclass(frozen=True)
+class StorageCleanupConfig:
+    """Configuration for the storage-occupancy-based MinIO cleanup agent.
+
+    threshold_percent is compared against psutil.disk_usage("/").percent —
+    the real used-% of the physical system drive (e.g. a 256 GB SSD).
+    No byte cap is needed; psutil reads the actual filesystem stats and
+    is already used by processes/device/telemetry.py for the health payload.
+    """
+
+    enabled: bool = True
+    threshold_percent: float = 89.0    # 0-100; whole-system disk % that triggers cleanup
+    delete_window_amount: int = 10       # quantity of time units to delete per cleanup pass
+    delete_window_unit: str = "minutes"  # "hours" | "minutes"
+    check_interval_seconds: int = 300  # how often to poll disk usage (seconds)
+
+
+@dataclass(frozen=True)
 class LoggingConfig: # LoggingConfig is a dataclass that holds the configuration for logging, including the directory for log files, the maximum size of each log file in bytes, the number of backup log files to keep, and the logging level.
     dir: str = "logging_output"
     max_bytes: int = 10 * 1024 * 1024
@@ -141,6 +158,7 @@ class SlaveConfig:
     video: VideoConfig
     logging: LoggingConfig
     device: DeviceConfig
+    storage_cleanup: StorageCleanupConfig = field(default_factory=StorageCleanupConfig)  # safe default if key absent from slave.yaml
     _base_dir: str = field(default=REPO_ROOT) # _base_dir is a private field that holds the base directory for resolving relative paths in the configuration. It defaults to the repository root directory, but can be overridden if needed.
 
     def resolve_path(self, relative_path: str) -> str: # resolve path is a method that takes a relative path as input and resolves it against the base directory of the configuration. If the input path is already absolute, it returns it unchanged; otherwise, it joins the base directory with the relative path to produce an absolute path.
@@ -148,6 +166,24 @@ class SlaveConfig:
         if os.path.isabs(relative_path): # checks if the input relative_path is already an absolute path using os.path.isabs(). If it is, the method returns it unchanged.
             return relative_path
         return os.path.join(self._base_dir, relative_path) # If the input relative_path is not absolute, the method joins the base directory (_base_dir) with the relative_path using os.path.join() to produce an absolute path, which it then returns.
+
+
+def _load_storage_cleanup_config(raw: dict) -> StorageCleanupConfig:
+    """Parse the optional storage_cleanup section from slave.yaml.
+
+    All fields have safe defaults so existing deployments without this key
+    are unaffected — the agent will start but only trigger if disk actually
+    crosses the threshold (default 90%).
+    """
+    sc_raw = raw.get("storage_cleanup") or {}
+    dw_raw = sc_raw.get("delete_window") or {}
+    return StorageCleanupConfig(
+        enabled=bool(sc_raw.get("enabled", True)),
+        threshold_percent=float(sc_raw.get("threshold_percent", 90.0)),
+        delete_window_amount=int(dw_raw.get("amount", 1)),
+        delete_window_unit=str(dw_raw.get("unit", "hours")),
+        check_interval_seconds=int(sc_raw.get("check_interval_seconds", 300)),
+    )
 
 
 def load_slave_config(path: str | None = None) -> SlaveConfig: # load_slave_config is a function that loads and validates the configuration from the specified slave.yaml file (or the default path if none is provided) and returns a SlaveConfig object containing the parsed configuration data. It raises a ValueError if any required sections are missing from the YAML file.
@@ -227,6 +263,7 @@ def load_slave_config(path: str | None = None) -> SlaveConfig: # load_slave_conf
         ),
         video=VideoConfig(**(raw.get("video") or {})), # VideoConfig is initialized with the values extracted from the "video" section of the YAML file, or defaults if the section is missing. It includes the duration of each video segment, the temporary directory for storing video segments, and the frames per second (FPS) of the video segments.
         logging=LoggingConfig(**(raw.get("logging") or {})), # LoggingConfig is initialized with the values extracted from the "logging" section of the YAML file, or defaults if the section is missing. It includes the directory for log files, the maximum size of each log file, the number of backup log files to keep, and the logging level.
+        storage_cleanup=_load_storage_cleanup_config(raw),
         device=DeviceConfig( # device identity (device_id/device_name/password/device_role/ip/dns_name/mac_id/serial_no/status/approval_status) lives at slave.yaml's top level, not nested under a "device:" key — matches the flat shape of the auto-generated registration record this stands in for. heartbeat_interval_seconds stays nested under device: (timing, not identity).
             device_id=raw.get("device_id", ""),
             device_name=raw.get("device_name", "unknown-device"),
