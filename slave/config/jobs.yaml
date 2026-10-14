@@ -1,27 +1,27 @@
 jobs:
-#  - job_id: job_001
-#    branch_id: branch_01
-#    branch_name: Main Branch
-#    camera_id: bbc8dca4-be94-45e9-a804-af6adaa8252a
-#    camera_name: paldi char rasta
-#    camera_stream: rtsp://192.168.1.38:8554/test
-#    zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
-#    zone_name: office
-#    latitude: 23.0555
-#    longitude: 72.5714
-#    location: Main Entrance krish , Ahmedabad
-#    model_assignments:
-#      - model_type: number_plate
-#        model_name: number_plate.pt
-#        camera_model_assign_id: e2e8ba51-dc43-4fe1-8a85-4995548c41fe
-#        model_id: ecb8e711-040d-476a-8717-9a009fe3086a
+  - job_id: job_001
+    branch_id: branch_01
+    branch_name: Main Branch
+    camera_id: 9d49206b-1257-4a7f-ba96-c06835875ad9
+    camera_name: cam_tapo
+    camera_stream: rtsp://localhost:8554/cam_tapo_105
+    zone_id: 119c0c2b-f813-44f2-b7bb-6ed81b6819de
+    zone_name: office
+    latitude: 22.6909196
+    longitude: 72.8638229
+    location: nadiad
+    model_assignments:
+      - model_type: person
+        model_name: person.pt
+        camera_model_assign_id: a8c06a2f-40c0-4d4d-9cdd-41edeb3d57e1
+        model_id: 2d20cf91-dd5b-46d2-a197-d58ec9f0348d
   - job_id: job_002
     branch_id: branch_01
     branch_name: Main Branch
-    camera_id: 7e302308-4723-4e13-a2d4-dfbbee4662d2
-    camera_name: santram circle
-    camera_stream: rtsp://192.168.1.38:8554/cam
-    zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
+    camera_id: 9d49206b-1257-4a7f-ba96-c06835875ad9
+    camera_name: cam_tapo
+    camera_stream: rtsp://localhost:8554/cam_tapo_105
+    zone_id: 119c0c2b-f813-44f2-b7bb-6ed81b6819de
     zone_name: office
     latitude: 22.6909196
     longitude: 72.8638229
@@ -29,6 +29,6 @@ jobs:
     model_assignments:
       - model_type: face
         model_name: face_detection_yunet_2023mar_int8.onnx
-        camera_model_assign_id: 972dd0dd-b587-4e04-9c75-2f43fc0ea61f
-        model_id: 6ee258d3-5223-47b2-8b30-650ac486946c
+        camera_model_assign_id: a8c06a2f-40c0-4d4d-9cdd-41edeb3d57e1
+        model_id: 2d20cf91-dd5b-46d2-a197-d58ec9f0348d
 
