@@ -6,19 +6,19 @@
 # until that flow exists (device_id/mac_id/serial_no/status/
 # approval_status are normally auto-generated; entered manually here
 # for now). Set uniquely per physical device before deploying.
-device_id: 32bf38de-4145-4cab-839b-65d5156c22cc
-device_name: mitesh
-password: '2003'
+device_id: 0b8f67b2-a699-434f-9ca2-e2206cd9f7b3
+device_name: neha-zbook
+password: '1234'
 device_role: slave
-ip: 192.168.1.38
-dns_name: atomo-master.local
-mac_id: '24:fb:e3:c2:a0:1a'
-serial_no: SN-0001
+ip: 192.168.1.21
+dns_name: neha-zbook.local
+mac_id: '40:EC:99:B6:58:55'
+serial_no: SN-99B65855
 status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.38
+  host: 192.168.1.21
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
@@ -58,12 +58,31 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.38:9000
+  endpoint: 192.168.1.21:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: face
   secure: false
-  enabled: True # skip MinIO frame/video uploads for now — set back to true when needed
+  enabled: true # TEMP: MinIO server at 192.168.1.21 has no license — set back to true once 'mc license update' is run on the server
+
+# Storage-occupancy-based auto-cleanup for MinIO.
+# Monitors the WHOLE SYSTEM DISK usage (psutil.disk_usage("/").percent — same
+# metric reported in the device health payload). When disk usage exceeds
+# threshold_percent, the oldest MinIO objects are deleted first (ascending
+# last_modified order) in chunks of delete_window until usage drops below
+# the threshold again.
+storage_cleanup:
+  enabled: true
+  # Whole-system disk used-% that triggers a cleanup pass.
+  # e.g. on a 256 GB SSD, 90 means "start deleting when 230 GB are used".
+  threshold_percent: 89
+  # How much data (oldest-first by upload time) to delete per cleanup pass.
+  # Supported units: "hours" | "minutes"
+  delete_window:
+    amount: 10
+    unit: minutes    # delete 1 hour's worth of oldest objects per pass; change to "minutes" for finer granularity
+  # How often the agent checks disk occupancy (seconds). 300 = every 5 min.
+  check_interval_seconds: 300
 
 video:
   segment_seconds: 30
