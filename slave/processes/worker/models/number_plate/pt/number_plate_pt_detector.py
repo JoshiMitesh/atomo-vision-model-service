@@ -45,37 +45,53 @@ class NumberPlatePtDetector:
         self._min_area_ratio = float(filters.get("min_plate_area_ratio", 0.00005))
 
         pt_cfg = model_config.get("pt", {})
-        self._runtime = UltralyticsRuntime(
-            model_path=model_path,
-            device=pt_cfg.get("device", "auto"),
-            half=bool(pt_cfg.get("half", False)),
-        )
+        self._backend = pt_cfg.get("backend", "ultralytics")
+        self._filters_enabled = bool(pt_cfg.get("shape_filter", True))
+        self._runtime = None
+        self._oim = None
+        if self._backend == "open_image_models":
+            # anpr_night's proven plate detector (YOLOv9-t, ONNX, auto-downloaded on first use).
+            from open_image_models import LicensePlateDetector
+
+            self._oim = LicensePlateDetector(
+                detection_model=pt_cfg.get("oim_model", "yolo-v9-t-640-license-plate-end2end"),
+                conf_thresh=float(pt_cfg.get("oim_conf_thresh", 0.25)),
+            )
+        else:
+            self._runtime = UltralyticsRuntime(
+                model_path=model_path,
+                device=pt_cfg.get("device", "auto"),
+                half=bool(pt_cfg.get("half", False)),
+            )
 
     def detect(self, frame: np.ndarray) -> List[Detection]:
-        result = self._runtime.infer(frame, conf=self._obj_thresh, iou=self._nms_thresh)
-        detections: List[Detection] = []
-
-        boxes = getattr(result, "boxes", None)
-        if boxes is None:
-            return detections
-
         img_h, img_w = frame.shape[:2]
         image_area = float(img_w * img_h)
-
-        for box in boxes:
-            x1, y1, x2, y2 = (float(v) for v in box.xyxy[0])
-            if not self._plate_shape_valid(x1, y1, x2, y2, image_area):
+        detections: List[Detection] = []
+        for x1, y1, x2, y2, conf in self._raw_boxes(frame):
+            if self._filters_enabled and not self._plate_shape_valid(x1, y1, x2, y2, image_area):
                 continue
             detections.append(
                 Detection(
                     class_id=0,
                     class_name=CLASS_NAME,
-                    confidence=float(box.conf[0]),
+                    confidence=conf,
                     bbox=(x1, y1, x2, y2),
                     model_name=self._display_name,
                 )
             )
         return detections
+
+    def _raw_boxes(self, frame: np.ndarray):
+        if self._oim is not None:
+            for d in self._oim.predict(frame):
+                b = d.bounding_box
+                yield float(b.x1), float(b.y1), float(b.x2), float(b.y2), float(d.confidence)
+            return
+        result = self._runtime.infer(frame, conf=self._obj_thresh, iou=self._nms_thresh)
+        for box in getattr(result, "boxes", None) or []:
+            x1, y1, x2, y2 = (float(v) for v in box.xyxy[0])
+            yield x1, y1, x2, y2, float(box.conf[0])
 
     def _plate_shape_valid(self, x1: float, y1: float, x2: float, y2: float, image_area: float) -> bool:
         w, h = x2 - x1, y2 - y1
@@ -89,4 +105,6 @@ class NumberPlatePtDetector:
         return True
 
     def release(self) -> None:
-        self._runtime.release()
+        if self._runtime is not None:
+            self._runtime.release()
+        self._oim = None

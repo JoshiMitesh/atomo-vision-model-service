@@ -10,28 +10,19 @@ psutil>=5.9   # device telemetry/heartbeat (processes/device/); falls back to ti
 #ultralytics>=8.2
 #torch>=2.1
 
-# Number-Plate OCR (plate_ocr.py). Only required when config/models/
-# number_plate.yaml has `ocr.enabled: true` (the default) -- plate
-# detection itself only needs ultralytics/torch above, same as Person.
-# >=3.0 required: plate_ocr.py uses the TextRecognition pipeline class,
-# which does not exist in the paddleocr 2.x line (confirmed: 2.10.0,
-# the last 2.x release, raises ImportError for it).
-paddleocr>=3.0
-paddlepaddle>=2.6
 
 # Person .nb/.so NPU runtimes depend on the vendor-provided Amlogic
 # A311D SDK (e.g. KSNN/ASNN or the board's own package). Install that
 # separately per the board's BSP documentation — see
 # runtimes/npu/nb_runtime.py and runtimes/npu/so_runtime.py.
 
-# Number-Plate NPU (.nb/.so) OCR runs PaddleOCR's recognizer through ONNX
-# Runtime (config/models/number_plate.yaml npu_ocr.engine) so the A311D
-# board does not need paddlepaddle. Install on the board: paddleocr
-# (>=3.0) + onnxruntime, not paddlepaddle.
-onnxruntime>=1.17
-
-# Number-Plate `.pt` OCR (plate_ocr.py) reads plates with fast-plate-ocr
-# (model set by config/models/number_plate.yaml `ocr.model_name`, e.g.
-# cct-s-v2-global-model; downloaded on first use). The NPU (.nb/.so)
-# path still uses paddleocr + onnxruntime (npu_ocr: block).
+# Number-Plate OCR, both .pt (plate_ocr.py) and .nb/.so (npu_plate_ocr.py)
+# paths: fast-plate-ocr on ONNX Runtime (no paddlepaddle, no aarch64 wheel
+# issue on the A311D board). OCR model downloads on first use into
+# ~/.cache/fast-plate-ocr.
 fast-plate-ocr>=1.1
+onnxruntime>=1.17
+# Number-plate detector when number_plate.yaml pt.backend is
+# open_image_models (anpr_night's YOLOv9-t, ONNX, no torch needed;
+# auto-downloaded on first use).
+open-image-models>=0.6

@@ -103,6 +103,11 @@ def normalize_plate(text: str) -> Tuple[str, bool]:
         if not c.isdigit():
             break
         dist += c
+    # A 1-digit district followed by a digit look-alike is almost always a
+    # misread 2-digit district ("GJ3ZK9938" for GJ32K9938) -- states like GJ
+    # always use 2-digit codes. Only done when a series letter is still left.
+    if len(dist) == 1 and len(mid) >= 3 and mid[1] in TO_DIGIT:
+        dist += TO_DIGIT[mid[1]]
     # series: whatever is left must be letters (a stray digit is a misread letter)
     ser = "".join(SERIES_FROM_DIGIT.get(c, c) for c in mid[len(dist):])
     plate = fix_state(head) + dist + ser + tail
