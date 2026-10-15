@@ -84,7 +84,7 @@ def build_default_registry() -> ModelRegistry: # build_default_registry is a fun
     registry.register("fire", ".pt", FirePtWorker)   # standalone Fire job — 3-class (fire/other/smoke) detector, no face_controller (worker_factory.py only attaches one to "person"/"safety").
     registry.register("fire", ".nb", FireNbWorker)
     registry.register("fire", ".so", FireSoWorker)
-    registry.register("number_plate", ".pt", NumberPlatePtWorker)   # standalone ALPR job — single-class plate detector + PaddleOCR text read (plate_enricher.py), no face_controller.
+    registry.register("number_plate", ".pt", NumberPlatePtWorker)   # standalone ALPR job — single-class plate detector + fast-plate-ocr (CCT) text read (plate_enricher.py), no face_controller.
     registry.register("number_plate", ".nb", NumberPlateNbWorker)   # same own-handle/own-thread shape as FireNbWorker; decode in number_plate/npu_decoder.py.
     registry.register("number_plate", ".so", NumberPlateSoWorker)   # same not-yet-functional SoRuntime caveat as every other .so path.
     registry.register("vehicle", ".pt", VehiclePtWorker)   # standalone vehicle job — 9-class detector (car/bus/truck/motorcycle/other + helmet/seatbelt variants filtered via ignore_classes), no face_controller.
