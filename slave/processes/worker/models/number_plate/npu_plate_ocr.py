@@ -4,31 +4,23 @@ path.
 Ported from the board-verified alpr_npu.py: contour-based corner
 finding that rejects untrustworthy quads (falling back to a small inset
 trapezoid), perspective warp with border replication, CLAHE + mild
-sharpen, then PP-OCRv5 mobile text recognition through **ONNX Runtime**
--- the reference uses `engine="onnxruntime"` so the board does not need
-paddlepaddle (no aarch64 wheel), only paddleocr + onnxruntime. The
-Paddle FLAGS_* variables must be set before paddle is first imported,
-hence the module-level os.environ setup below.
+sharpen, then fast-plate-ocr's CCT text recognition -- fast-plate-ocr
+always runs on ONNX Runtime internally, so the board does not need
+paddlepaddle (no aarch64 wheel) at all.
 
-Independent of plate_ocr.py (the `.pt` path's Paddle-engine OCR).
+Independent of plate_ocr.py (the `.pt` path's OCR) in that each keeps
+its own recognizer instance -- both now use the same fast-plate-ocr
+backend.
 """
 
 from __future__ import annotations
 
-import os
+from typing import Tuple
 
-# Must be set BEFORE paddle/paddleocr is imported anywhere in the process.
-os.environ.setdefault("FLAGS_enable_pir_api", "0")
-os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
-os.environ.setdefault("FLAGS_use_mkldnn", "0")
-os.environ.setdefault("FLAGS_use_onednn", "0")
+import cv2
+import numpy as np
 
-from typing import Tuple  # noqa: E402
-
-import cv2  # noqa: E402
-import numpy as np  # noqa: E402
-
-from slave.logging.logger import get_logger  # noqa: E402
+from slave.logging.logger import get_logger
 
 log = get_logger(__name__)
 
@@ -141,15 +133,16 @@ def enhance_plate(image: np.ndarray) -> np.ndarray:
 
 class NpuPlateOcr:
     def __init__(self, model_name: str, engine: str, out_w: int, out_h: int) -> None:
-        from paddleocr import TextRecognition  # lazy: keeps detection-only setups free of the dependency
+        from fast_plate_ocr import LicensePlateRecognizer  # lazy: keeps detection-only setups free of the dependency
 
-        kwargs = {"model_name": model_name}
-        if engine:
-            kwargs["engine"] = engine
-        self._recognizer = TextRecognition(**kwargs)
+        # `engine` is accepted for config/call-site compatibility but unused:
+        # fast_plate_ocr always runs on ONNX Runtime internally. model_name
+        # must be one of its hub_ocr_model literals (e.g. cct-s-v1-global-model),
+        # downloaded to ~/.cache/fast-plate-ocr on first use.
+        self._recognizer = LicensePlateRecognizer(hub_ocr_model=model_name)
         self._out_w = out_w
         self._out_h = out_h
-        log.info("plate OCR ready (model=%s, engine=%s)", model_name, engine or "default")
+        log.info("plate OCR ready (model=%s)", model_name)
 
     def read(self, crop: np.ndarray) -> Tuple[str, float]:
         """Crop -> perspective-corrected, enhanced plate -> (text, confidence)."""
@@ -158,34 +151,12 @@ class NpuPlateOcr:
 
     def _recognize(self, image: np.ndarray) -> Tuple[str, float]:
         try:
-            best_text, best_conf = "", 0.0
-            for res in self._recognizer.predict(image):
-                data = getattr(res, "json", None)
-                if callable(data):
-                    data = data()
-                if data is None and isinstance(res, dict):
-                    data = res
-
-                rec_text, rec_score = "", 0.0
-                if isinstance(data, dict):
-                    if "rec_text" in data:
-                        rec_text, rec_score = data.get("rec_text", ""), data.get("rec_score", 0.0)
-                    elif isinstance(data.get("res"), dict):
-                        rec_text = data["res"].get("rec_text", "")
-                        rec_score = data["res"].get("rec_score", 0.0)
-
-                if not rec_text and hasattr(res, "rec_text"):
-                    rec_text, rec_score = res.rec_text, getattr(res, "rec_score", 0.0)
-
-                try:
-                    rec_score = float(rec_score)
-                except (TypeError, ValueError):
-                    rec_score = 0.0
-                rec_text = str(rec_text).strip()
-
-                if rec_text and rec_score > best_conf:
-                    best_text, best_conf = rec_text, rec_score
-            return best_text, best_conf
+            # fast_plate_ocr's CCT models are trained on grayscale crops.
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            result = self._recognizer.run_one(gray, return_confidence=True)
+            text = str(result.plate or "").strip()
+            score = float(np.mean(result.char_probs)) if result.char_probs is not None and result.char_probs.size else 0.0
+            return text, score
         except Exception:
             log.exception("plate OCR inference failed")
             return "", 0.0

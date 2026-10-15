@@ -217,3 +217,8 @@ __marimo__/
 # Slave: runtime-generated (recreated automatically on startup)
 slave/logging_output/
 slave/storage/tmp/
+
+# Local one-off backup folders (e.g. number_plate_backup_20261014/) made
+# before editing — never meant to be committed.
+number_plate_backup_*/
+*_backup_*/

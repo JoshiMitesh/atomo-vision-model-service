@@ -58,6 +58,13 @@ pt:
   model_file: number_plate.pt
   device: auto          # auto | cpu | cuda:0
   half: false
+  # Plate detector backend. open_image_models = anpr_night's proven
+  # YOLOv9-t (ONNX, no torch; auto-downloads on first use; model_file
+  # above is then unused). ultralytics = the number_plate.pt checkpoint.
+  backend: open_image_models
+  oim_model: yolo-v9-t-640-license-plate-end2end
+  oim_conf_thresh: 0.25   # anpr_night's value
+  shape_filter: false     # anpr_night applies no box shape filter
 
 nb:
   # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
@@ -95,20 +102,24 @@ so:
   # decode settings are read from the nb: block above.
   device_id: 0
 
-# OCR (plate text read) settings -- ported from the reference ALPR
-# script's PaddleOCR pipeline (rtsp_30fps_realtime-adjacent reference
-# alpr_video.py: perspective-correct + CLAHE-enhance the plate crop,
-# then PP-OCRv5_mobile_rec). Runs per matched plate track, not on
-# every raw detection every frame.
+# OCR (plate text read) settings for the .pt path -- anpr_night's
+# night-CCTV pipeline (plate_ocr.py/plate_enhance.py): each plate box is
+# read 2 pad ratios x 2 crop variants (raw grayscale + black-hat cleaned)
+# with fast-plate-ocr, then voted. Each vehicle is published once, only
+# after its number is read (unread boxes are never published).
 ocr:
   enabled: true
-  model_name: PP-OCRv5_mobile_rec
-  interval_frames: 5
-  search_interval_frames: 5
-  min_score: 0.45
+  model_name: cct-s-v2-global-model   # confirmed working in anpr_night/anpr.py
+  interval_frames: 1          # OCR every processed frame, like anpr_night
+  search_interval_frames: 1   # OCR rate while a track has no accepted read yet
+  min_score: 0.0              # anpr_night has no score gate; plate_format.py does the filtering
+  pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
+  # Perspective-rectify output size -- npu_ocr (the .nb/.so path) only.
   rectified_width_px: 320
   rectified_height_px: 80
   max_vote_history: 30
+  # A plate is published only when this many reads agree on the exact
+  # same plate string (2 stops a single wrong read being published).
   min_confirmations: 2
   validate_indian_plate: true
 # Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
@@ -116,10 +127,10 @@ ocr:
 # The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
 npu_ocr:
   enabled: true
-  model_name: PP-OCRv5_mobile_rec
-  # onnxruntime avoids needing paddlepaddle on the board (no aarch64
-  # wheel); needs `pip install onnxruntime`. Set to "" for Paddle's own
-  # engine. If OCR fails to initialise the job still runs detection-only.
+  model_name: cct-s-v2-global-model
+  # Unused now: fast_plate_ocr (npu_plate_ocr.py) always runs on ONNX
+  # Runtime internally -- kept only for backward config compatibility.
+  # If OCR fails to initialise the job still runs detection-only.
   engine: onnxruntime
   min_ocr_conf: 0.45           # raw OCR reads below this are ignored
   track_iou_threshold: 0.20    # detection<->track match (IoU)
