@@ -151,9 +151,16 @@ class NpuPlateOcr:
 
     def _recognize(self, image: np.ndarray) -> Tuple[str, float]:
         try:
-            # fast_plate_ocr's CCT models are trained on grayscale crops.
+            # fast_plate_ocr's CCT models are trained on grayscale crops,
+            # but the ONNX graph's input is still (H, W, 3) -- a plain
+            # 1-channel array fails with "Got invalid dimensions ...
+            # Expected: 3". Convert to gray for the plate-reading quality,
+            # then back to 3-channel BGR for the model's expected input
+            # shape (same pattern as plate_ocr.py's _run_ocr(), the
+            # working .pt path).
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            result = self._recognizer.run_one(gray, return_confidence=True)
+            bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            result = self._recognizer.run_one(bgr, return_confidence=True)
             text = str(result.plate or "").strip()
             score = float(np.mean(result.char_probs)) if result.char_probs is not None and result.char_probs.size else 0.0
             return text, score
