@@ -10,7 +10,7 @@ device_id: 9a05d65f-ecf3-433b-ab60-0a3c3fab387f
 device_name: neha-zbook
 password: '1234'
 device_role: slave
-ip: 192.168.1.27
+ip: 192.168.1.21
 dns_name: neha-zbook.local
 mac_id: '40:EC:99:B6:58:55'
 serial_no: SN-99B65855
@@ -18,7 +18,7 @@ status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.27
+  host: 192.168.1.21
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2

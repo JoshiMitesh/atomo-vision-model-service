@@ -4,7 +4,7 @@ jobs:
   #   branch_name: Gandhinagar
   #   camera_id: bcf3ef51-67c2-41ba-8534-5f0551379c59
   #   camera_name: Janpath T
-  #   camera_stream: rtsp://192.168.1.21:8554/cam02
+  #   camera_stream: rtsp://192.168.1.27:8554/cam02
   #   zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
   #   zone_name: office
   #   latitude: 23.0882239
@@ -21,7 +21,7 @@ jobs:
   #   branch_name: Gandhinagar
   #   camera_id: 9a8a9546-a6b8-470d-88d6-e5ccd5244b26
   #   camera_name: Chiman Bhai Bridge
-  #   camera_stream: rtsp://192.168.1.21:8554/cam01
+  #   camera_stream: rtsp://192.168.1.27:8554/cam01
   #   zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
   #   zone_name: office
   #   latitude: 23.0684057
@@ -38,7 +38,7 @@ jobs:
     branch_name: Gandhinagar
     camera_id: 81bcb567-4a48-4d6b-8c8e-56e4b1fbfa47
     camera_name: Bhavani Char Rasta
-    camera_stream: rtsp://192.168.1.21:8554/cam07
+    camera_stream: rtsp://192.168.1.27:8554/cam07
     zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
     zone_name: office
     latitude: 23.1277594
@@ -55,7 +55,7 @@ jobs:
     branch_name: Gandhinagar
     camera_id: aac9c209-bfbc-40a2-a718-651217e0c040
     camera_name: Vijay Char Rasta
-    camera_stream: rtsp://192.168.1.21:8554/test
+    camera_stream: rtsp://192.168.1.27:8554/test
     zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
     zone_name: office
     latitude: 23.0060000
@@ -63,7 +63,7 @@ jobs:
     location: DEMO
     model_assignments:
       - model_type: number_plate
-        model_name: number_plate.nb
+        model_name: number_plate.pt
         camera_model_assign_id: a3e6fc8e-67e3-4b43-8edf-5ba14ea9c98d
         model_id: ecb8e711-040d-476a-8717-9a009fe3086a
 
@@ -72,7 +72,7 @@ jobs:
     branch_name: Gandhinagar
     camera_id: 3166241e-8ad2-423d-86b1-6c92fa85c6cf
     camera_name: Madhuram Bypass Road
-    camera_stream: rtsp://192.168.1.21:8554/cam06
+    camera_stream: rtsp://192.168.1.27:8554/cam06
     zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
     zone_name: office
     latitude: 23.0056000
@@ -80,7 +80,7 @@ jobs:
     location: DEMO
     model_assignments:
       - model_type: number_plate
-        model_name: number_plate.nb
+        model_name: number_plate.pt
         camera_model_assign_id: c16c1953-0377-4e15-9a54-cdadf1d338e2
         model_id: ecb8e711-040d-476a-8717-9a009fe3086a
 
@@ -90,7 +90,7 @@ jobs:
   #   branch_name: Gandhinagar
   #   camera_id: e6af403c-9215-48f3-bca6-6b3f4f1f9a77
   #   camera_name: Paldi Char Rasta
-  #   camera_stream: rtsp://192.168.1.21:8554/cam05
+  #   camera_stream: rtsp://192.168.1.27:8554/cam05
   #   zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
   #   zone_name: office
   #   latitude: 23.0142400
