@@ -6,11 +6,11 @@
 # until that flow exists (device_id/mac_id/serial_no/status/
 # approval_status are normally auto-generated; entered manually here
 # for now). Set uniquely per physical device before deploying.
-device_id: 0b8f67b2-a699-434f-9ca2-e2206cd9f7b3
+device_id: 9a05d65f-ecf3-433b-ab60-0a3c3fab387f
 device_name: neha-zbook
 password: '1234'
 device_role: slave
-ip: 192.168.1.21
+ip: 192.168.1.27
 dns_name: neha-zbook.local
 mac_id: '40:EC:99:B6:58:55'
 serial_no: SN-99B65855
@@ -18,7 +18,7 @@ status: Active
 approval_status: approved
 
 nats:
-  host: 192.168.1.21
+  host: 192.168.1.27
   port: 4222
   use_websocket: false
   reconnect_wait_seconds: 2
@@ -58,7 +58,7 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.21:9000
+  endpoint: 192.168.1.27:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: face
