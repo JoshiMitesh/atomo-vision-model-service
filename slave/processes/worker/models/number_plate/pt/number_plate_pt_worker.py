@@ -1,16 +1,21 @@
 """Standalone Number-Plate `.pt` worker -- a jobs.yaml entry with
 model_type: "number_plate", entirely independent of any Person/Safety
-job. Same frame-loop shape as fire_pt_worker.py, plus a per-job
-PlateEnricher (plate_enricher.py) that turns each frame's raw plate
-boxes into the same boxes carrying an OCR-read plate number, using
-cross-frame tracking so OCR doesn't need to run on every detection
-every frame (CLAUDE.md SS20 -- this state is per-job, never shared).
+job. Plus a per-job PlateEnricher (plate_enricher.py) that turns each
+frame's raw plate boxes into the same boxes carrying an OCR-read plate
+number, using cross-frame tracking so OCR doesn't need to run on every
+detection every frame (CLAUDE.md SS20 -- this state is per-job, never
+shared).
+
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+number_plate.pt file shares one detector instance and takes turns.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin.
 """
 
 from __future__ import annotations
 
 import os
-import threading
 import time
 
 from slave.logging.logger import get_logger
@@ -25,12 +30,11 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.number_plate.plate_enricher import PlateEnricher
 from slave.processes.worker.models.number_plate.pt.number_plate_pt_detector import NumberPlatePtDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
-FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class NumberPlatePtWorker:
+class NumberPlatePtWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -52,7 +56,6 @@ class NumberPlatePtWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = NumberPlatePtDetector(model_path, model_config, assignment.model_name)
         self._enricher = PlateEnricher(model_config)
 
         url = job.camera_stream
@@ -61,39 +64,18 @@ class NumberPlatePtWorker:
         # Keep PT frame acquisition independent from the NB/SO/NPU workers.
         self._frame_reader = FrameReader(worker_key, url, decode_every_n_frames=1)
 
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(
-            target=self._run, name=f"number-plate-pt-{worker_key}", daemon=True
-        )
         self._speed_window_start = time.monotonic()
         self._speed_window_frames = 0
 
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._thread.start()
-        self._log.info("number_plate .pt worker started")
+        pt_cfg = model_config.get("pt", {})
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: NumberPlatePtDetector(model_path, model_config, assignment.model_name),
+            target_fps=float(pt_cfg.get("target_fps", 12.0)),
+            process_interval=float(pt_cfg.get("process_interval", 0.0)),
+        )
 
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("number_plate .pt worker stopped")
-
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
-        raw_detections = self._detector.detect(frame.image)
+    def _process_frame(self, frame, raw_detections) -> None:
         plate_detections = self._enricher.enrich(
             frame.image,
             raw_detections,
@@ -172,10 +154,10 @@ class NumberPlatePtWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector is NOT released here -- it is shared across
+        # every job using this model_path. unregister_job() (called
+        # before _cleanup) already releases it, but only once this was
+        # the last job using that model_path.
         try:
             self._enricher.release()
         except Exception:

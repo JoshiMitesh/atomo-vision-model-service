@@ -1,12 +1,16 @@
-"""Person `.nb` worker — job lifecycle around the shared A311D NPU
-round-robin scheduler (see npu_round_robin_scheduler.py).
+"""Person `.nb` worker — job lifecycle around the shared
+SchedulerBackedWorker mixin (runtimes/common/round_robin_scheduler.py).
 
 The worker no longer owns its own detector or polling thread: the NPU
-can only run one model instance at a time, so all `.nb` jobs share one
-NpuRoundRobinScheduler/detector and this worker just registers a
-FrameReader + result callback with it. Everything downstream of
-detect() (face detection, upload, publish, video) still runs per-job,
-on the scheduler thread, at that job's turn.
+can only run one model instance at a time, so all `.nb` jobs using the
+same model file share one RoundRobinScheduler/detector and this
+worker just registers a FrameReader + result callback with it (via
+_attach_scheduler() -- start()/stop()/is_alive()/the callback wrapper
+are all inherited from the mixin, not written here). Everything
+downstream of detect() (face detection, upload, publish, video) still
+runs per-job, on the scheduler thread, at that job's turn. The
+scheduler itself is shared with every other model type's `.nb`/`.pt`
+workers (e.g. Number-Plate) -- it has no Person-specific code.
 """
 
 from __future__ import annotations
@@ -25,12 +29,13 @@ from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
-from slave.processes.worker.models.person.nb import npu_round_robin_scheduler as scheduler_registry
+from slave.processes.worker.models.person.nb.person_nb_detector import PersonNbDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
 
-class PersonNbWorker:
+class PersonNbWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -59,8 +64,8 @@ class PersonNbWorker:
         self._frame_counter = 0
 
         library_file = model_config.get("nb", {}).get("library_file", "")
-        self._model_path = os.path.join(models_dir, assignment.model_name)
-        self._library_path = os.path.join(models_dir, library_file) if library_file else None
+        model_path = os.path.join(models_dir, assignment.model_name)
+        library_path = os.path.join(models_dir, library_file) if library_file else None
 
         url = job.camera_stream
         self._frame_reader = FrameReader(
@@ -69,30 +74,15 @@ class PersonNbWorker:
             decode_every_n_frames=max(1, int(model_config.get("nb", {}).get("decode_every_n_frames", 3))),
         )
 
-        self._scheduler = scheduler_registry.get_shared_scheduler(
-            self._model_path, self._library_path, model_config, assignment.model_name
+        nb_cfg = model_config.get("nb", {})
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: PersonNbDetector(
+                model_path, library_path, model_config, assignment.model_name
+            ),
+            target_fps=float(nb_cfg.get("target_fps", 2.0)),
+            process_interval=float(nb_cfg.get("process_interval", 0.0)),
         )
-
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._scheduler.register(self._worker_key, self._frame_reader, self._on_detections)
-        self._log.info("person .nb worker started (shared NPU round-robin scheduler)")
-
-    def stop(self) -> None:
-        scheduler_registry.unregister_job(self._model_path, self._worker_key)
-        self._cleanup()
-        self._log.info("person .nb worker stopped")
-
-    def is_alive(self) -> bool:
-        # No dedicated thread anymore — "alive" means still registered
-        # with the shared scheduler.
-        return self._worker_key in getattr(self._scheduler, "_sources", {})
-
-    def _on_detections(self, frame: Frame, person_detections: list) -> None:
-        try:
-            self._process_frame(frame, person_detections)
-        except Exception:
-            self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame: Frame, person_detections: list) -> None:
         self._frame_counter += 1

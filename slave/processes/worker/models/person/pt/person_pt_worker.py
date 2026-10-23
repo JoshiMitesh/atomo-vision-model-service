@@ -1,14 +1,17 @@
 """Person `.pt` worker — job lifecycle, frame loop, result delivery.
 
-Owns everything specific to running one job: its own RTSP reader,
-detector instance, stop event, and video/upload state. Never shares
-state with another job's worker (CLAUDE.md §20).
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+person.pt file shares one detector instance and takes turns. This
+caps total concurrent `.pt` inference work on weaker boards, where N
+independent full-speed `.pt` threads can overload the CPU.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin.
 """
 
 from __future__ import annotations
 
 import os
-import threading
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -22,12 +25,11 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.person.pt.person_pt_detector import PersonPtDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
-FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class PersonPtWorker:
+class PersonPtWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -51,40 +53,19 @@ class PersonPtWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = PersonPtDetector(model_path, model_config, assignment.model_name)
 
         url = job.camera_stream
         self._frame_reader = FrameReader(worker_key, url)
 
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, name=f"person-pt-{worker_key}", daemon=True)
+        pt_cfg = model_config.get("pt", {})
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: PersonPtDetector(model_path, model_config, assignment.model_name),
+            target_fps=float(pt_cfg.get("target_fps", 12.0)),
+            process_interval=float(pt_cfg.get("process_interval", 0.0)),
+        )
 
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._thread.start()
-        self._log.info("person .pt worker started")
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("person .pt worker stopped")
-
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
-        person_detections = self._detector.detect(frame.image)
+    def _process_frame(self, frame, person_detections) -> None:
         face_detections = self._face_controller.update(frame.image, person_detections)
         detections = person_detections + face_detections
 
@@ -146,10 +127,10 @@ class PersonPtWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector is NOT released here -- it is shared across
+        # every job using this model_path. unregister_job() (called
+        # before _cleanup) already releases it, but only once this was
+        # the last job using that model_path.
         try:
             self._face_controller.release()
         except Exception:

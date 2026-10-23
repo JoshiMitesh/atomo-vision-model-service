@@ -1,17 +1,11 @@
 """Standalone Safety `.nb` worker — a jobs.yaml entry with model_type:
 "safety", entirely independent of any Person job.
 
-NOTE — NPU sharing: person_nb_worker.py's NpuRoundRobinScheduler exists
-because the A311D NPU can only run one model instance at a time, and
-every Person `.nb` job shares one scheduler/handle for that reason.
-This worker does NOT participate in that scheduler (same as
-face_nb_worker.py) — it owns an independent NbRuntime handle. If a
-standalone Safety `.nb` job and a Person (or Face) `.nb` job ever run
-concurrently on the same board, they will independently try to drive
-the NPU, which may contend/fail depending on the A311D SDK's actual
-behavior with multiple simultaneous handles. Generalizing the
-round-robin scheduler to cover all `.nb` model types is the correct
-fix if that combination needs to be supported.
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+safety.nb file shares one detector/NPU handle and takes turns.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin.
 
 Also attaches a face_controller (worker_factory.py wires this in for
 both "person" and "safety" model types) — Face auto-triggers off this
@@ -21,7 +15,6 @@ model's own "person" class, same as safety_pt_worker.py.
 from __future__ import annotations
 
 import os
-import threading
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -35,12 +28,11 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.safety.nb.safety_nb_detector import SafetyNbDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
-FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class SafetyNbWorker:
+class SafetyNbWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -66,40 +58,21 @@ class SafetyNbWorker:
         library_file = model_config.get("nb", {}).get("library_file", "")
         model_path = os.path.join(models_dir, assignment.model_name)
         library_path = os.path.join(models_dir, library_file) if library_file else None
-        self._detector = SafetyNbDetector(model_path, library_path, model_config, assignment.model_name)
 
         url = job.camera_stream
         self._frame_reader = FrameReader(worker_key, url)
 
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, name=f"safety-nb-{worker_key}", daemon=True)
+        nb_cfg = model_config.get("nb", {})
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: SafetyNbDetector(
+                model_path, library_path, model_config, assignment.model_name
+            ),
+            target_fps=float(nb_cfg.get("target_fps", 12.0)),
+            process_interval=float(nb_cfg.get("process_interval", 0.0)),
+        )
 
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._thread.start()
-        self._log.info("safety .nb worker started")
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("safety .nb worker stopped")
-
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
-        safety_detections = self._detector.detect(frame.image)
+    def _process_frame(self, frame, safety_detections) -> None:
         person_only = [d for d in safety_detections if d.class_name == "person"]
         face_detections = self._face_controller.update(frame.image, person_only)
         detections = safety_detections + face_detections
@@ -158,10 +131,10 @@ class SafetyNbWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector/NPU handle is NOT released here -- it is
+        # shared across every job using this model_path. unregister_job()
+        # (called before _cleanup) already releases it, but only once
+        # this was the last job using that model_path.
         try:
             self._face_controller.release()
         except Exception:

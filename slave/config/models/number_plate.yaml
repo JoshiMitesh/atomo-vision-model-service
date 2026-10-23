@@ -76,6 +76,19 @@ nb:
   level: 0
   device_id: 0
   board: Electron
+  # REVERTED to 3 (2026-10-16): tried matching .pt's decode_every_n_frames=1
+  # ("decode every frame") to give .nb as many chances to catch a
+  # passing plate as .pt gets, but on this board that overloaded the
+  # single-threaded (threads=1) H.264 decoder -- live-tested with 2
+  # concurrent number_plate.nb jobs, it produced continuous "reference
+  # picture missing during reorder" FFmpeg warnings (320+ in under a
+  # minute, vs. zero at decode_every_n_frames=3), meaning frames fed to
+  # the NPU were corrupted/dropped more often, not less -- a net
+  # regression. 3 is the empirically-clean value for THIS board's RTSP
+  # decode; the actual fix for .nb's low publish rate was the shared
+  # `ocr:` block's min_confirmations below, which carries no decode-CPU
+  # cost at all.
+  decode_every_n_frames: 3
 
   # NB/SO-path-only detection tuning (npu_decoder.py -- the .so path
   # shares this block). Values are the board-verified alpr_npu.py's:
@@ -90,7 +103,17 @@ nb:
   # Cap on NPU inferences per second per job (alpr_npu.py's NPU_FPS = 12);
   # 0 disables the cap.
   target_fps: 12
-  obj_thresh: 0.45
+  # History: originally 0.45 -- lowered to 0.25 (2026-10-16) to match
+  # .pt's oim_conf_thresh and stop rejecting real plates outright.
+  # Briefly raised to 0.35, then reverted back to 0.25 (2026-10-19): a
+  # fuller accuracy audit found wrong reads at detection confidence
+  # from 0.33 up to 0.80 -- box confidence does not actually predict
+  # whether the OCR text is right, so raising this threshold only lost
+  # real detections without reliably filtering bad ones. Quality
+  # filtering now happens on a more direct signal instead -- the OCR
+  # model's own confidence, see ocr.min_score below -- so this stays
+  # lenient for coverage.
+  obj_thresh: 0.25
   nms_thresh: 0.30
   candidate_gather_thresh: 0.18
   dfl_certainty_thresh: 0.18
@@ -102,54 +125,59 @@ so:
   # decode settings are read from the nb: block above.
   device_id: 0
 
-# OCR (plate text read) settings for the .pt path -- anpr_night's
-# night-CCTV pipeline (plate_ocr.py/plate_enhance.py): each plate box is
-# read 2 pad ratios x 2 crop variants (raw grayscale + black-hat cleaned)
-# with fast-plate-ocr, then voted. Each vehicle is published once, only
-# after its number is read (unread boxes are never published).
+# OCR (plate text read) settings -- shared by every extension (.pt,
+# .nb, .so). anpr_night's night-CCTV pipeline (plate_ocr.py/
+# plate_enhance.py): each plate box is read 2 pad ratios x 2 crop
+# variants (raw grayscale + black-hat cleaned) with fast-plate-ocr,
+# then voted. Each vehicle is published once, only after its number is
+# read (unread boxes are never published).
+#
+# Used to be .pt-only, with .nb/.so each keeping an independent
+# "npu_ocr:" block -- an independent OCR module (npu_plate_ocr.py),
+# tracker (npu_plate_tracker.py) and confirmation threshold, tuned
+# separately from this one. That split was the direct cause of two
+# live-tested bugs: npu_plate_ocr.py's perspective-correction fallback
+# silently truncated the last character of every read of a plate (this
+# plate_ocr.py never warped the crop at all and never had the bug),
+# and npu_ocr's min_valid_observations had quietly drifted to 3 against
+# this block's min_confirmations of 2 -- a stricter bar nobody had
+# actually decided on, just never kept in sync. All three extensions
+# now read this one block, so that kind of drift can't happen again.
 ocr:
   enabled: true
   model_name: cct-s-v2-global-model   # confirmed working in anpr_night/anpr.py
   interval_frames: 1          # OCR every processed frame, like anpr_night
   search_interval_frames: 1   # OCR rate while a track has no accepted read yet
-  min_score: 0.0              # anpr_night has no score gate; plate_format.py does the filtering
+  # Raised from 0.0 (2026-10-19): an accuracy audit of confirmed
+  # uploads found wrong reads at DETECTION confidence from 0.33 up to
+  # 0.80 -- box confidence (obj_thresh) does not predict whether the
+  # OCR text is right, so threshold tuning on it hit a ceiling. This
+  # gates on a different, more direct signal instead: the OCR model's
+  # own confidence in the TEXT it read. Untested starting point -- 0.5
+  # rejects a read before it ever enters tracking/voting if the OCR
+  # itself wasn't confident, rather than trying to approximate that
+  # through the detector's box confidence.
+  min_score: 0.5
   pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
-  # Perspective-rectify output size -- npu_ocr (the .nb/.so path) only.
-  rectified_width_px: 320
-  rectified_height_px: 80
   max_vote_history: 30
-  # A plate is published only when this many reads agree on the exact
-  # same plate string (2 stops a single wrong read being published).
+  # A plate is published once it has this many reads of the exact same
+  # string. Lowered to 1 (2026-10-19, explicit user call): with 2, a
+  # plate seen only once before the vehicle leaves frame -- common on
+  # sparse-traffic cameras like job_051's -- never gets published at
+  # all, even though a real box and a real OCR read existed. 1 means
+  # every detected, read plate is published; the tradeoff is an
+  # occasional wrong single-read text (e.g. the "GJ3ZT805" misread
+  # found during tuning) can now get published uncorrected, since
+  # there's no second read left to catch it against.
   min_confirmations: 2
   validate_indian_plate: true
-# Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
-# ported from the board-verified alpr_npu.py (npu_plate_enricher.py).
-# The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
-npu_ocr:
-  enabled: true
-  model_name: cct-s-v2-global-model
-  # Unused now: fast_plate_ocr (npu_plate_ocr.py) always runs on ONNX
-  # Runtime internally -- kept only for backward config compatibility.
-  # If OCR fails to initialise the job still runs detection-only.
-  engine: onnxruntime
-  min_ocr_conf: 0.45           # raw OCR reads below this are ignored
-  track_iou_threshold: 0.20    # detection<->track match (IoU)
-  track_max_missed: 18         # frames a track survives without a detection
-  max_history: 25              # OCR reads kept per track
-  # A plate is "stable" once it has this many valid-Indian-format reads
-  # AND total evidence >= min_stable_score (evidence = OCR conf x
-  # detection conf x 1.65 valid / 0.30 invalid, boosted for repeats).
-  min_valid_observations: 3
-  min_stable_score: 1.8
-  # true  -> plate_number is null until the plate is "stable" (reference
-  #          behaviour, its "STABLE PLATE" line).
-  # false -> publish the current best text as soon as it is a valid
-  #          Indian-format plate (earlier, but may still change).
-  publish_only_stable: true
 
-# Cross-frame plate tracking (nearest-center greedy match) so OCR
-# accumulates votes for the same physical plate instead of restarting
-# every frame -- ported from the reference's PlateTrack/update_tracks.
+# Cross-frame plate tracking (nearest-center greedy match, with
+# velocity prediction so a track survives real-world gaps between
+# sparse detections) so OCR accumulates votes for the same physical
+# plate instead of restarting every frame -- ported from the
+# reference's PlateTrack/update_tracks. Shared by every extension, see
+# `ocr:` above for why.
 tracking:
   max_match_distance_px: 90
   max_missed_frames: 15   # fallback only when capture timestamps are unavailable

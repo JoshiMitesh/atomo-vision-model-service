@@ -4,14 +4,18 @@
 Unlike face_controller.py's person-chained Face (only active while a
 person is in frame, on the Person job's own stream), this worker owns
 its own RTSP stream/FrameReader and runs Face detection on every
-frame, unconditionally, for the lifetime of its own job — same shape
-as PersonPtWorker, just Face instead of Person and no person-gating.
+frame, unconditionally, for the lifetime of its own job.
+
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+face.pt file shares one detector instance and takes turns, same as
+PersonPtWorker. start()/stop()/is_alive()/the detections callback are
+all inherited from the mixin.
 """
 
 from __future__ import annotations
 
 import os
-import threading
 
 import cv2
 
@@ -29,12 +33,11 @@ from slave.processes.worker.models.face.pt.face_pt_detector import FacePtDetecto
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.face.face_quality import passes_face_quality_gate
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
-FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class FacePtWorker:
+class FacePtWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -56,49 +59,30 @@ class FacePtWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = with_embedding(
-            FacePtDetector(model_path, model_config, assignment.model_name), model_config, models_dir
-        )
-        self._face_tracker = FaceController(
-            job_id=job.job_id,
-            detector_factory=lambda: self._detector,
-            off_timeout_sec=0,
-            enabled=True,
-        )
 
         url = job.camera_stream
         self._frame_reader = FrameReader(worker_key, url)
 
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, name=f"face-pt-{worker_key}", daemon=True)
+        pt_cfg = model_config.get("pt", {})
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: with_embedding(
+                FacePtDetector(model_path, model_config, assignment.model_name), model_config, models_dir
+            ),
+            target_fps=float(pt_cfg.get("target_fps", 12.0)),
+            process_interval=float(pt_cfg.get("process_interval", 0.0)),
+        )
+        # Never person-gated here (track_detections() only, not
+        # update()), so _activate()/detector_factory is never actually
+        # invoked -- kept only so release() stays a correct no-op.
+        self._face_tracker = FaceController(
+            job_id=job.job_id,
+            detector_factory=lambda: self._scheduler._detector,
+            off_timeout_sec=0,
+            enabled=True,
+        )
 
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._thread.start()
-        self._log.info("standalone face .pt worker started")
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("standalone face .pt worker stopped")
-
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
-        detections = self._detector.detect(frame.image)
-
+    def _process_frame(self, frame, detections) -> None:
         # Match the shared face-quality filters before tracking/event
         # creation. Keep the existing embedding visibility check so
         # partially occluded faces remain excluded for standalone PT.
@@ -221,10 +205,9 @@ class FacePtWorker:
             self._face_tracker.release()
         except Exception:
             self._log.exception("error releasing face tracker")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the shared detector is NOT released here -- unregister_job()
+        # (called before _cleanup) already releases it, but only once
+        # this was the last job using that model_path.
         try:
             self._video_manager.close()
         except Exception:

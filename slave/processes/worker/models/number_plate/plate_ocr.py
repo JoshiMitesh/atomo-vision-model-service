@@ -77,7 +77,17 @@ class PlateOcr:
 
     def _run_ocr(self, img_gray: np.ndarray) -> Tuple[str, float]:
         try:
-            result = self._recognizer.run(cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR), return_confidence=True)[0]
+            # Different hub models want different input shapes --
+            # cct-s-v2-global-model wants 3-channel ("rgb") even though
+            # it's trained on grayscale-derived crops, while e.g.
+            # global-plates-mobile-vit-v2-model wants the literal
+            # 1-channel ("grayscale") array. Passing the wrong channel
+            # count is a hard ONNXRuntime shape error, not a quality
+            # issue, so this must match whichever model is actually
+            # loaded rather than assuming one fixed shape.
+            wants_rgb = self._recognizer.config.image_color_mode != "grayscale"
+            model_input = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR) if wants_rgb else img_gray
+            result = self._recognizer.run(model_input, return_confidence=True)[0]
             score = float(np.mean(result.char_probs)) if result.char_probs is not None else 0.0
             return result.plate.replace("_", "").strip().upper(), score
         except Exception:
