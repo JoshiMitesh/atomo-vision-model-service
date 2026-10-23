@@ -27,6 +27,7 @@ from slave.processes.detection.detection_result import DetectionResult
 from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.number_plate.nb.number_plate_nb_detector import NumberPlateNbDetector
@@ -49,6 +50,7 @@ class NumberPlateNbWorker:
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
         identity: WorkerIdentity,
+        profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -56,6 +58,7 @@ class NumberPlateNbWorker:
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
         self._identity = identity
+        self._profiling_publisher = profiling_publisher
         self._log = get_logger(__name__, job_id=job.job_id)
 
         library_file = model_config.get("nb", {}).get("library_file", "")
