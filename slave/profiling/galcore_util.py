@@ -3,6 +3,14 @@ import pathlib
 def _read_file(p: pathlib.Path) -> str | None:
     try:
         return p.read_text().strip()
+    except PermissionError:
+        # Fallback to sudo cat if the file is not readable by the current user
+        import subprocess
+        try:
+            out = subprocess.check_output(['sudo', 'cat', str(p)], text=True)
+            return out.strip()
+        except Exception:
+            return None
     except Exception:
         return None
 
@@ -16,24 +24,46 @@ def _parse_percent(txt: str | None) -> float | None:
         return None
 
 # Primary debugfs location on Khadas VIM3
-DEBUG_ROOT = pathlib.Path('/sys/kernel/debug/galcore')
-_LOAD = DEBUG_ROOT / 'load'
-_IDLE = DEBUG_ROOT / 'idle'
+DEBUG_ROOTS = [
+    pathlib.Path('/sys/kernel/debug/galcore'),
+    pathlib.Path('/sys/kernel/debug/rknpu'),
+]
+
+def _find_file(name: str) -> pathlib.Path | None:
+    """Return the first existing file matching *name* under any known DEBUG_ROOTS.
+    ``name`` is a filename like ``load`` or ``idle``.
+    """
+    for root in DEBUG_ROOTS:
+        candidate = root / name
+        if candidate.is_file():
+            return candidate
+    return None
 
 def read_npu_load() -> float | None:
     """Return NPU utilisation as a percentage (0‑100).
-    Prefer the ``load`` file; if unavailable fall back to ``idle``
-    (idle = 1‑load). Handles both percent and fractional representations.
+
+    The function attempts to read a ``load`` or ``idle`` file from known debugfs
+    locations. ``load`` reports utilisation directly; ``idle`` reports the idle
+    fraction (idle = 1‑load). The implementation accepts both percent strings
+    (e.g. ``"23%"``) and fractional values (e.g. ``"0.23"``). If none of the
+    expected files are present, ``None`` is returned.
     """
-    raw = _read_file(_LOAD)
-    pct = _parse_percent(raw)
-    if pct is not None:
-        return pct
-    raw = _read_file(_IDLE)
-    idle = _parse_percent(raw)
-    if idle is None:
-        return None
-    # ``idle`` may be a fraction (0‑1) or a percent (>1)
-    if idle > 1.0:
-        idle = idle / 100.0
-    return (1.0 - idle) * 100.0
+    # Try a direct ``load`` file first
+    load_path = _find_file('load')
+    if load_path:
+        raw = _read_file(load_path)
+        pct = _parse_percent(raw)
+        if pct is not None:
+            return pct
+    # Fallback to ``idle`` – convert idle fraction/percent to utilisation
+    idle_path = _find_file('idle')
+    if idle_path:
+        raw = _read_file(idle_path)
+        idle = _parse_percent(raw)
+        if idle is not None:
+            # ``idle`` may be a fraction (0‑1) or a percent (>1)
+            if idle > 1.0:
+                idle = idle / 100.0
+            return (1.0 - idle) * 100.0
+    # No usable debugfs entry – caller will see ``None``
+    return None
