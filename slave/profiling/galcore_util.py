@@ -35,8 +35,12 @@ def _find_file(name: str) -> pathlib.Path | None:
     """
     for root in DEBUG_ROOTS:
         candidate = root / name
-        if candidate.is_file():
-            return candidate
+        try:
+            if candidate.exists():
+                return candidate
+        except PermissionError:
+            # If we cannot stat the file, skip to next root – _read_file will try sudo.
+            continue
     return None
 
 def read_npu_load() -> float | None:
