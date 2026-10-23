@@ -127,3 +127,23 @@ def read_npu_load() -> float | None:
             return (1.0 - idle) * 100.0
     # No usable debugfs entry – caller will see ``None``
     return None
+
+def get_cached_npu_load() -> float | None:
+    """Read the cached NPU load written by the helper daemon.
+
+    Returns the utilisation percentage (0‑100) or ``None`` if the file is
+    missing or unparsable.
+    """
+    cached = pathlib.Path('/tmp/npu_load')
+    if not cached.is_file():
+        return None
+    try:
+        for line in cached.read_text().splitlines():
+            if 'load' in line:
+                parts = line.split(':')
+                if len(parts) >= 2:
+                    pct_str = parts[1].strip().rstrip('%')
+                    pct = _parse_percent(pct_str + '%')
+                    return pct
+    except Exception:
+        return None
