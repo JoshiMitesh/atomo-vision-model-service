@@ -50,6 +50,8 @@ from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.number_plate.nb.number_plate_nb_detector import NumberPlateNbDetector
+from slave.profiling.profiler import Profiler
+import time
 from slave.processes.worker.models.number_plate.plate_enricher import PlateEnricher
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
@@ -78,6 +80,7 @@ class NumberPlateNbWorker(SchedulerBackedWorker):
         self._identity = identity
         self._profiling_publisher = profiling_publisher
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiler = Profiler(model_name=assignment.model_name)
 
         nb_cfg = model_config.get("nb", {})
         library_file = nb_cfg.get("library_file", "")
@@ -117,6 +120,19 @@ class NumberPlateNbWorker(SchedulerBackedWorker):
         # many turns produces one event, not one per frame it's still
         # visible (same as the `.pt` path).
         readable_plates = self._enricher.take_publishable()
+        # profiling: inference already happened in scheduler (raw_detections)
+        self._profiler.mark('inference')
+        # queue wait measurement
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
+        # post‑process (enrichment)
+        self._profiler.mark('postprocess')
+        # finish and publish profiling report
+        self._profiler.stop()
+        try:
+            self._profiling_publisher.publish(self._profiler.report())
+        except Exception:
+            self._log.exception('failed to publish profiling data')
 
         object_key = url = None
         annotated = None
