@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import threading
+import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -24,7 +25,7 @@ from slave.processes.worker.models.fire.pt.fire_pt_detector import FirePtDetecto
 from slave.processes.worker.models.fire.severity import compute_severity
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
-
+from slave.profiling.profiler import Profiler
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
 
@@ -49,6 +50,7 @@ class FirePtWorker:
         self._identity = identity
         self._model_config = model_config
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiler = Profiler(model_name=assignment.model_name)
 
         model_path = os.path.join(models_dir, assignment.model_name)
         self._detector = FirePtDetector(model_path, model_config, assignment.model_name)
@@ -78,13 +80,19 @@ class FirePtWorker:
             frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
             if frame is None:
                 continue
+            # Queue‑wait measurement (ms)
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
             try:
+                self._profiler.start()
                 self._process_frame(frame)
+                self._profiler.stop()
+                self._profiling_publisher.publish(self._profiler.report())
             except Exception:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
     def _process_frame(self, frame) -> None:
+        self._profiler.mark("preprocess")
         fire_detections = self._detector.detect(frame.image)
+        self._profiler.mark("inference")
 
         if fire_detections:
             frame_height, frame_width = (int(v) for v in frame.image.shape[:2])
@@ -104,7 +112,7 @@ class FirePtWorker:
             upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
             if upload_info is not None:
                 object_key, url = upload_info
-
+        self._profiler.mark("postprocess")
         width = height = None
         if object_key is not None:
             height, width = (int(v) for v in frame.image.shape[:2])

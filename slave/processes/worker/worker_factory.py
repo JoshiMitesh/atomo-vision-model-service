@@ -28,6 +28,7 @@ from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.minio.video_uploader import VideoUploader
 from slave.processes.model.model_resolver import ResolvedModel
 from slave.processes.publisher.detection_publisher import DetectionPublisher
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_factory import build_face_controller
 
@@ -61,8 +62,8 @@ class WorkerIdentity:
 class WorkerServices:
     """Process-wide collaborators shared (read-only) across all jobs."""
 
-    models_root: str  # .../processes/worker/models
-    config_root: str  # .../config — needed to resolve config/models/face.yaml
+    models_root: str
+    config_root: str
     detection_publisher: DetectionPublisher
     frame_uploader: FrameUploader
     video_uploader: VideoUploader
@@ -71,6 +72,7 @@ class WorkerServices:
     video_fps: int
     device_id: str
     device_name: str
+    profiling_publisher: ProfilingPublisher  # new field for profiling telemetry
 
 
 def create_worker(
@@ -107,6 +109,7 @@ def create_worker(
         frame_uploader=services.frame_uploader,
         video_manager=video_manager,
         identity=identity,
+        profiling_publisher=services.profiling_publisher,  # profiling telemetry publisher
     )
 
     if resolved.model_type in ("person", "safety"):

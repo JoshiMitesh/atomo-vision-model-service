@@ -20,6 +20,8 @@ from slave.processes.detection.detection_result import DetectionResult
 from slave.processes.detection.frame_annotator import draw_detections
 from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
+from slave.profiling.profiler import Profiler
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.number_plate.plate_enricher import PlateEnricher
@@ -42,6 +44,7 @@ class NumberPlatePtWorker:
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
         identity: WorkerIdentity,
+        profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -50,6 +53,9 @@ class NumberPlatePtWorker:
         self._video_manager = video_manager
         self._identity = identity
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiling_publisher = profiling_publisher
+        # Profiler for this model instance
+        self._profiler = Profiler(model_name=assignment.model_name)
 
         model_path = os.path.join(models_dir, assignment.model_name)
         self._detector = NumberPlatePtDetector(model_path, model_config, assignment.model_name)
@@ -88,18 +94,24 @@ class NumberPlatePtWorker:
             if frame is None:
                 continue
             try:
+                self._profiler.start()
                 self._process_frame(frame)
+                self._profiler.stop()
+                self._profiling_publisher.publish(self._profiler.report())
             except Exception:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
+        self._profiler.mark("preprocess")
         raw_detections = self._detector.detect(frame.image)
+        self._profiler.mark("inference")
         plate_detections = self._enricher.enrich(
             frame.image,
             raw_detections,
             frame.frame_id,
             frame_timestamp=frame.timestamp,
         )
+        self._profiler.mark("postprocess")
         event_plates = self._enricher.take_publishable()
 
         # Only plates whose number was actually read are published (and

@@ -56,12 +56,12 @@ pt:
   # Resolved flat against processes/worker/models/number_plate/ (same
   # convention as person.pt/fire.pt).
   model_file: number_plate.pt
-  device: auto          # auto | cpu | cuda:0
-  half: false
+  device: cuda:0          # auto | cpu | cuda:0
+  half: true
   # Plate detector backend. open_image_models = anpr_night's proven
   # YOLOv9-t (ONNX, no torch; auto-downloads on first use; model_file
   # above is then unused). ultralytics = the number_plate.pt checkpoint.
-  backend: open_image_models
+  backend: ultralytics
   oim_model: yolo-v9-t-640-license-plate-end2end
   oim_conf_thresh: 0.25   # anpr_night's value
   shape_filter: false     # anpr_night applies no box shape filter

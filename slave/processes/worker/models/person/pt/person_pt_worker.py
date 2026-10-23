@@ -22,8 +22,10 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.person.pt.person_pt_detector import PersonPtDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.profiling.profiler import Profiler
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.utils.time_utils import ist_now_iso
-
+import time
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
 
@@ -40,6 +42,7 @@ class PersonPtWorker:
         video_manager: VideoManager,
         identity: WorkerIdentity,
         face_controller: FaceController,
+        profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -49,12 +52,13 @@ class PersonPtWorker:
         self._identity = identity
         self._face_controller = face_controller
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiling_publisher = profiling_publisher
 
         model_path = os.path.join(models_dir, assignment.model_name)
         self._detector = PersonPtDetector(model_path, model_config, assignment.model_name)
 
         url = job.camera_stream
-        self._frame_reader = FrameReader(worker_key, url)
+        self._profiler = Profiler(model_name=assignment.model_name)
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, name=f"person-pt-{worker_key}", daemon=True)
@@ -78,14 +82,24 @@ class PersonPtWorker:
             frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
             if frame is None:
                 continue
+
+            # Queue‑wait measurement (ms)
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
+
             try:
+                self._profiler.start()
                 self._process_frame(frame)
+                self._profiler.stop()
+                self._profiling_publisher.publish(self._profiler.report())
             except Exception:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
+        self._profiler.mark("preprocess")
         person_detections = self._detector.detect(frame.image)
+        self._profiler.mark("inference")
         face_detections = self._face_controller.update(frame.image, person_detections)
+        self._profiler.mark("postprocess")
         detections = person_detections + face_detections
 
         # Upload happens before publishing so the frame's object_key/url

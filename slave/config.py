@@ -37,6 +37,7 @@ class NatsConfig: # NatsConfig is a dataclass that holds the configuration for c
     health_subject: str = "devices.{device_name}.health"
     cmd_subject: str = "devices.{device_name}.cmd"
     register_subject: str = "devices.{device_name}.register"
+    profiling_subject: str = "devices.{device_name}.profiling"  # new topic for model profiling data
 
     @property
     def url(self) -> str:
@@ -150,7 +151,7 @@ class DeviceConfig:
     supported_models: tuple[str, ...] = ("person",)
 
 
-@dataclass(frozen=True) # slave_config is a dataclass that holds the overall configuration for the slave node, including the NATS configuration, jobs configuration, MinIO configuration, video configuration, logging configuration, device configuration, and the base directory for resolving relative paths.
+@dataclass(frozen=True) # slave_config is a dataclass that holds the overall configuration for the slave node, including the NATS configuration, jobs configuration, MinIO configuration, video configuration, logging configuration, device configuration, profiling configuration, and the base directory for resolving relative paths.
 class SlaveConfig:
     nats: NatsConfig
     jobs: JobsConfig
@@ -158,6 +159,7 @@ class SlaveConfig:
     video: VideoConfig
     logging: LoggingConfig
     device: DeviceConfig
+    profiling: dict = field(default_factory=dict)  # placeholder for profiling config (can be extended later)
     storage_cleanup: StorageCleanupConfig = field(default_factory=StorageCleanupConfig)  # safe default if key absent from slave.yaml
     _base_dir: str = field(default=REPO_ROOT) # _base_dir is a private field that holds the base directory for resolving relative paths in the configuration. It defaults to the repository root directory, but can be overridden if needed.
 

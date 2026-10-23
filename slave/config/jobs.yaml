@@ -51,12 +51,12 @@ jobs:
   #       model_id: ecb8e711-040d-476a-8717-9a009fe3086a
 
   - job_id: job_004
-    branch_id: e845c456-b123-40cf-8841-77998fa133ef
+    branch_id: e78b6ba5-e6a2-464d-b16b-afa94ebaf556
     branch_name: Gandhinagar
-    camera_id: aac9c209-bfbc-40a2-a718-651217e0c040
+    camera_id: ff3ce9d9-7b69-4f3e-be03-316939e0fd80
     camera_name: Vijay Char Rasta
     camera_stream: rtsp://192.168.1.21:8554/test
-    zone_id: 9e1eed36-0a50-4e95-858a-61e1c121168a
+    zone_id: 88082b70-00d6-4826-b0a8-52287a0932ce
     zone_name: office
     latitude: 23.0060000
     longitude: 72.5716000
@@ -64,8 +64,11 @@ jobs:
     model_assignments:
       - model_type: number_plate
         model_name: number_plate.pt
-        camera_model_assign_id: a3e6fc8e-67e3-4b43-8edf-5ba14ea9c98d
-        model_id: ecb8e711-040d-476a-8717-9a009fe3086a
+        camera_model_assign_id: 66377dc6-92a8-4890-9922-58d8caad3634
+        model_id: 9a928e5f-a39e-47aa-b51c-c30a28688903
+    pt:
+      device: cuda:0
+      half: true
 
   # - job_id: job_005
   #   branch_id: e845c456-b123-40cf-8841-77998fa133ef

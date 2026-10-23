@@ -53,6 +53,7 @@ from slave.processes.model.model_registry import build_default_registry
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.publisher.publisher import Publisher
 from slave.processes.publisher.upload_publisher import UploadPublisher
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.processes.subscriber.subscriber import NatsSubscriber
 from slave.processes.worker.worker_factory import WorkerServices
 from slave.processes.worker.worker_manager import WorkerManager
@@ -102,21 +103,19 @@ def main() -> None:
     storage_cleanup_agent = StorageCleanupAgent(minio_client, config.storage_cleanup)
     storage_cleanup_agent.start()
 
+    profiling_publisher = ProfilingPublisher(publisher, config.nats.profiling_subject)
     services = WorkerServices(
-        models_root=os.path.join(REPO_ROOT, "processes", "worker", "models"), # models_root is the path to the directory where the worker models are stored, which is used by the WorkerServices to load and manage the models for inference.
-        config_root=config.resolve_path("config"), # config_root is the path to the directory where the configuration files are stored, which is used by the WorkerServices to load and manage the configuration for the workers.
-        detection_publisher=detection_publisher, # detection_publisher is the instance of the DetectionPublisher class, which is used by the WorkerServices to publish detection results to the Master over NATS.
-        frame_uploader=frame_uploader, # frame_uploader is the instance of the FrameUploader class, which is used by the WorkerServices to upload detected frames to MinIO and publish upload events to the Master over NATS.
-        video_uploader=video_uploader, # video_uploader is the instance of the VideoUploader class, which is used by the WorkerServices to upload completed 30-second video segments to MinIO and publish upload events to the Master over NATS.
-        video_temp_dir=config.resolve_path(config.video.temp_dir), # video_temp_dir is the path to the temporary directory where video segments are stored before being uploaded to MinIO, which is used by the WorkerServices to manage the temporary storage of video segments.
-        video_segment_seconds=config.video.segment_seconds, # video_segment_seconds is the duration of each video segment in seconds, which is used by the WorkerServices to determine how long each video segment should be before it is uploaded to MinIO.
-        video_fps=config.video.fps, # video_fps is the frames per second (FPS) of the video segments, which is used by the WorkerServices to determine the frame rate of the video segments before they are uploaded to MinIO.
-        # source.device_id/device_name on every cam.detection message —
-        # device-level identity from slave.yaml. branch_id/branch_name
-        # are NOT here: they're per-job, Master-supplied (see
-        # models/job.py's JobConfig), not device-level config.
+        models_root=os.path.join(REPO_ROOT, "processes", "worker", "models"),
+        config_root=config.resolve_path("config"),
+        detection_publisher=detection_publisher,
+        frame_uploader=frame_uploader,
+        video_uploader=video_uploader,
+        video_temp_dir=config.resolve_path(config.video.temp_dir),
+        video_segment_seconds=config.video.segment_seconds,
+        video_fps=config.video.fps,
         device_id=config.device.device_id,
         device_name=config.device.device_name,
+        profiling_publisher=profiling_publisher,
     )
 
     registry = build_default_registry() 

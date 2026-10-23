@@ -8,6 +8,8 @@ job — never shared (CLAUDE.md §20).
 from __future__ import annotations
 
 import queue
+from typing import Optional
+from slave.profiling.profiler import Profiler
 import threading
 import time
 
@@ -21,10 +23,11 @@ RECONNECT_BACKOFF_SECONDS = 2.0
 
 
 class FrameReader:
-    def __init__(self, job_id: str, url: str, decode_every_n_frames: int = 3) -> None:
+    def __init__(self, job_id: str, url: str, decode_every_n_frames: int = 3, profiler: Optional[Profiler] = None) -> None:
         self._job_id = job_id
         self._client = RtspClient(url, decode_every_n_frames=decode_every_n_frames)
         self._queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
+        self._profiler = profiler
         self._frame_ids = FrameIdGenerator()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, name=f"frame-reader-{job_id}", daemon=True)
@@ -79,7 +82,11 @@ class FrameReader:
             self._set_status("offline")
 
         while not self._stop_event.is_set():
+            start_decode = time.time()
             ok, image = self._client.read()
+            decode_elapsed_ms = (time.time() - start_decode) * 1000.0
+            if self._profiler:
+                self._profiler.record_camera_decode(decode_elapsed_ms)
             if not ok:
                 error = self._client.get_last_error()
                 if error:
@@ -106,6 +113,9 @@ class FrameReader:
                 image=image,
                 timestamp=epoch_seconds(),
             )
+            if self._profiler:
+                self._profiler.record_frame_capture(frame.frame_id, frame.timestamp)
+                self._profiler.record_queue_len("frame_queue", self._queue.qsize())
             self._push_latest(frame)
             self._tick_fps()
 
@@ -122,6 +132,10 @@ class FrameReader:
             self._queue.put_nowait(frame)
         except queue.Full:
             pass
+
+    def get_queue_size(self) -> int:
+        """Return current queue size for profiling purposes."""
+        return self._queue.qsize()
 
     def _tick_fps(self) -> None:
         with self._status_lock:

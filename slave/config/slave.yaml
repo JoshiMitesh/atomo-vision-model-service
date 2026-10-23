@@ -58,7 +58,7 @@ jobs:
   poll_interval_seconds: 5
 
 minio:
-  endpoint: 192.168.1.27:9000
+  endpoint: 192.168.1.21:9000
   access_key: minioadmin
   secret_key: minioadmin
   bucket: face
