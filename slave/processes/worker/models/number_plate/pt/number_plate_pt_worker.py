@@ -104,16 +104,21 @@ class NumberPlatePtWorker(SchedulerBackedWorker):
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
-        self._profiler.mark("preprocess")
+        # preprocessing – any lightweight pre‑work before detection
+        self._profiler.mark('preprocess')
         raw_detections = self._detector.detect(frame.image)
-        self._profiler.mark("inference")
+        self._profiler.mark('inference')
+        # queue wait measurement (time spent waiting for frame)
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         plate_detections = self._enricher.enrich(
             frame.image,
             raw_detections,
             frame.frame_id,
             frame_timestamp=frame.timestamp,
         )
-        self._profiler.mark("postprocess")
+        # post‑process – after enrichment work is done
+        self._profiler.mark('postprocess')
         event_plates = self._enricher.take_publishable()
 
         # Only plates whose number was actually read are published (and

@@ -106,6 +106,8 @@ class NumberPlateNbWorker(SchedulerBackedWorker):
         )
 
     def _process_frame(self, frame, raw_detections) -> None:
+        # preprocessing – nothing heavy before inference in NB worker
+        self._profiler.mark('preprocess')
         plate_detections = self._enricher.enrich(
             frame.image,
             raw_detections,
@@ -113,19 +115,13 @@ class NumberPlateNbWorker(SchedulerBackedWorker):
             frame_timestamp=frame.timestamp,
         )
 
-        # Only plates whose number was actually read, and only the
-        # frame each track FIRST gets confirmed on, are published (and
-        # uploaded) -- take_publishable() hands back just this call's
-        # newly-confirmed tracks, so a vehicle sitting in frame across
-        # many turns produces one event, not one per frame it's still
-        # visible (same as the `.pt` path).
         readable_plates = self._enricher.take_publishable()
         # profiling: inference already happened in scheduler (raw_detections)
         self._profiler.mark('inference')
         # queue wait measurement
         if hasattr(frame, 'timestamp'):
             self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
-        # post‑process (enrichment)
+        # post‑process (enrichment) – now after enrichment work done
         self._profiler.mark('postprocess')
         # finish and publish profiling report
         self._profiler.stop()
