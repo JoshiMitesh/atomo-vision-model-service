@@ -63,6 +63,48 @@ def read_npu_load() -> float | None:
     The function attempts to read a ``load`` or ``idle`` file from known debugfs
     locations. ``load`` reports utilisation directly; ``idle`` reports the idle
     fraction (idle = 1‑load). The implementation accepts both percent strings
+    (e.g. "23%") and fractional values (e.g. "0.23"). If none of the expected
+    files are present, ``None`` is returned.
+    """
+    # 1️⃣ Try the cached file written by the privileged helper
+    cached = pathlib.Path('/tmp/npu_load')
+    if cached.is_file():
+        try:
+            for line in cached.read_text().splitlines():
+                if 'load' in line:
+                    # Expected format: "load      : 28%"
+                    parts = line.split(':')
+                    if len(parts) >= 2:
+                        pct_str = parts[1].strip().rstrip('%')
+                        pct = _parse_percent(pct_str + '%')
+                        if pct is not None:
+                            return pct
+        except Exception:
+            pass
+    # 2️⃣ Fallback to direct debugfs reads via _find_file
+    # Try a direct ``load`` file first
+    load_path = _find_file('load')
+    if load_path:
+        raw = _read_file(load_path)
+        pct = _parse_percent(raw)
+        if pct is not None:
+            return pct
+    # Fallback to ``idle`` – convert idle fraction/percent to utilisation
+    idle_path = _find_file('idle')
+    if idle_path:
+        raw = _read_file(idle_path)
+        idle = _parse_percent(raw)
+        if idle is not None:
+            if idle > 1.0:
+                idle = idle / 100.0
+            return (1.0 - idle) * 100.0
+    # No usable debugfs entry – caller will see ``None``
+    return None
+    """Return NPU utilisation as a percentage (0‑100).
+
+    The function attempts to read a ``load`` or ``idle`` file from known debugfs
+    locations. ``load`` reports utilisation directly; ``idle`` reports the idle
+    fraction (idle = 1‑load). The implementation accepts both percent strings
     (e.g. ``"23%"``) and fractional values (e.g. ``"0.23"``). If none of the
     expected files are present, ``None`` is returned.
     """
