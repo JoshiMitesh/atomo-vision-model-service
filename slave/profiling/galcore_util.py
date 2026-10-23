@@ -30,17 +30,15 @@ DEBUG_ROOTS = [
 ]
 
 def _find_file(name: str) -> pathlib.Path | None:
-    """Return the first existing file matching *name* under any known DEBUG_ROOTS.
-    ``name`` is a filename like ``load`` or ``idle``.
+    """Return the first debugfs file matching *name* that can be read.
+    This avoids permission‑protected stat calls; we attempt to read the file
+    via ``_read_file`` which already falls back to ``sudo cat`` when needed.
     """
     for root in DEBUG_ROOTS:
         candidate = root / name
-        try:
-            if candidate.exists():
-                return candidate
-        except PermissionError:
-            # If we cannot stat the file, skip to next root – _read_file will try sudo.
-            continue
+        # Try to read the file; if we get a non‑None result, the file is usable.
+        if _read_file(candidate) is not None:
+            return candidate
     return None
 
 def read_npu_load() -> float | None:
