@@ -6,12 +6,17 @@ face_controller (worker_factory.py attaches one to both "person" and
 just this model's own "person" class, not the full 9-class detection
 list, so Face only activates when Safety actually sees a person in
 frame (see face_controller.update()'s truthiness check).
+
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+safety.pt file shares one detector instance and takes turns.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin.
 """
 
 from __future__ import annotations
 
 import os
-import threading
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -25,12 +30,11 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.safety.pt.safety_pt_detector import SafetyPtDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
-FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class SafetyPtWorker:
+class SafetyPtWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -54,40 +58,19 @@ class SafetyPtWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = SafetyPtDetector(model_path, model_config, assignment.model_name)
 
         url = job.camera_stream
         self._frame_reader = FrameReader(worker_key, url)
 
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, name=f"safety-pt-{worker_key}", daemon=True)
+        pt_cfg = model_config.get("pt", {})
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: SafetyPtDetector(model_path, model_config, assignment.model_name),
+            target_fps=float(pt_cfg.get("target_fps", 12.0)),
+            process_interval=float(pt_cfg.get("process_interval", 0.0)),
+        )
 
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._thread.start()
-        self._log.info("safety .pt worker started")
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("safety .pt worker stopped")
-
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
-        safety_detections = self._detector.detect(frame.image)
+    def _process_frame(self, frame, safety_detections) -> None:
         # Face only triggers off Safety's own "person" class, not any
         # of the other 8 PPE-compliance classes.
         person_only = [d for d in safety_detections if d.class_name == "person"]
@@ -156,10 +139,10 @@ class SafetyPtWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector is NOT released here -- it is shared across
+        # every job using this model_path. unregister_job() (called
+        # before _cleanup) already releases it, but only once this was
+        # the last job using that model_path.
         try:
             self._face_controller.release()
         except Exception:

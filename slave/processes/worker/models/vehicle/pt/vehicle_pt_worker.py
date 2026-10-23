@@ -4,12 +4,17 @@ fire_pt_worker.py's frame loop, minus the severity post-process (that's
 fire-specific) and minus a face_controller (worker_factory.py only
 attaches one to "person" and "safety" model types — Vehicle has no
 reason to trigger Face).
+
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+vehicle.pt file shares one detector instance and takes turns.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin.
 """
 
 from __future__ import annotations
 
 import os
-import threading
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -22,12 +27,11 @@ from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.vehicle.pt.vehicle_pt_detector import VehiclePtDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
-FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class VehiclePtWorker:
+class VehiclePtWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -49,41 +53,19 @@ class VehiclePtWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = VehiclePtDetector(model_path, model_config, assignment.model_name)
 
         url = job.camera_stream
         self._frame_reader = FrameReader(worker_key, url)
 
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, name=f"vehicle-pt-{worker_key}", daemon=True)
+        pt_cfg = model_config.get("pt", {})
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: VehiclePtDetector(model_path, model_config, assignment.model_name),
+            target_fps=float(pt_cfg.get("target_fps", 12.0)),
+            process_interval=float(pt_cfg.get("process_interval", 0.0)),
+        )
 
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._thread.start()
-        self._log.info("vehicle .pt worker started")
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("vehicle .pt worker stopped")
-
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
-        vehicle_detections = self._detector.detect(frame.image)
-
+    def _process_frame(self, frame, vehicle_detections) -> None:
         object_key = url = None
         annotated = None
         if vehicle_detections:
@@ -140,10 +122,10 @@ class VehiclePtWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector is NOT released here -- it is shared across
+        # every job using this model_path. unregister_job() (called
+        # before _cleanup) already releases it, but only once this was
+        # the last job using that model_path.
         try:
             self._video_manager.close()
         except Exception:

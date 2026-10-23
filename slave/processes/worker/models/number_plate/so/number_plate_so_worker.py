@@ -2,7 +2,8 @@
 model_type: "number_plate", using the native .so inference path. Same
 shape as number_plate_nb_worker.py / fire_so_worker.py (own thread, no
 shared NPU scheduler, same NPU-contention caveat), plus the per-job
-NpuPlateEnricher (tracking + OCR).
+PlateEnricher (tracking + OCR -- the same module the `.pt` and `.nb`
+paths use, not a separate port).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from slave.processes.minio.frame_uploader import FrameUploader
 from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
-from slave.processes.worker.models.number_plate.npu_plate_enricher import NpuPlateEnricher
+from slave.processes.worker.models.number_plate.plate_enricher import PlateEnricher
 from slave.processes.worker.models.number_plate.so.number_plate_so_detector import NumberPlateSoDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
@@ -51,7 +52,7 @@ class NumberPlateSoWorker:
 
         library_path = os.path.join(models_dir, assignment.model_name)
         self._detector = NumberPlateSoDetector(library_path, model_config, assignment.model_name)
-        self._enricher = NpuPlateEnricher(model_config)
+        self._enricher = PlateEnricher(model_config)
         target_fps = float(model_config.get("nb", {}).get("target_fps", 12))
         self._min_interval = 1.0 / target_fps if target_fps > 0 else 0.0
 
@@ -98,12 +99,16 @@ class NumberPlateSoWorker:
 
     def _process_frame(self, frame) -> None:
         raw_detections = self._detector.detect(frame.image)
-        plate_detections = self._enricher.enrich(frame.image, raw_detections, frame.frame_id)
+        plate_detections = self._enricher.enrich(
+            frame.image,
+            raw_detections,
+            frame.frame_id,
+            frame_timestamp=frame.timestamp,
+        )
 
-        # Only plates whose number was actually read are published (and
-        # uploaded) -- an unread plate would just be a null plate_number
-        # event. Video still records every detected plate.
-        readable_plates = [d for d in plate_detections if d.extra.get("plate_number")]
+        # Only plates whose number was actually read, and only the
+        # frame each track FIRST gets confirmed on, are published.
+        readable_plates = self._enricher.take_publishable()
 
         object_key = url = None
         annotated = None

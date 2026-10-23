@@ -1,14 +1,19 @@
 """Person `.pt` worker — job lifecycle, frame loop, result delivery.
 
-Owns everything specific to running one job: its own RTSP reader,
-detector instance, stop event, and video/upload state. Never shares
-state with another job's worker (CLAUDE.md §20).
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+person.pt file shares one detector instance and takes turns. This
+caps total concurrent `.pt` inference work on weaker boards, where N
+independent full-speed `.pt` threads can overload the CPU.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin.
 """
-
 from __future__ import annotations
 
+
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
+
 import os
-import threading
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -22,14 +27,11 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.face.face_controller import FaceController
 from slave.processes.worker.models.person.pt.person_pt_detector import PersonPtDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
-from slave.profiling.profiler import Profiler
-from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.utils.time_utils import ist_now_iso
-import time
+
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class PersonPtWorker:
+class PersonPtWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -55,7 +57,6 @@ class PersonPtWorker:
         self._profiling_publisher = profiling_publisher
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = PersonPtDetector(model_path, model_config, assignment.model_name)
 
         url = job.camera_stream
         self._profiler = Profiler(model_name=assignment.model_name)
@@ -82,22 +83,13 @@ class PersonPtWorker:
             frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
             if frame is None:
                 continue
-
-            # Queue‑wait measurement (ms)
-            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
-
             try:
-                self._profiler.start()
                 self._process_frame(frame)
-                self._profiler.stop()
-                self._profiling_publisher.publish(self._profiler.report())
             except Exception:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
-        self._profiler.mark("preprocess")
         person_detections = self._detector.detect(frame.image)
-        self._profiler.mark("inference")
         face_detections = self._face_controller.update(frame.image, person_detections)
         self._profiler.mark("postprocess")
         detections = person_detections + face_detections
@@ -160,10 +152,10 @@ class PersonPtWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector is NOT released here -- it is shared across
+        # every job using this model_path. unregister_job() (called
+        # before _cleanup) already releases it, but only once this was
+        # the last job using that model_path.
         try:
             self._face_controller.release()
         except Exception:

@@ -3,6 +3,12 @@
 face_pt_worker.py / safety_pt_worker.py's frame loop, minus a
 face_controller (worker_factory.py only attaches one to "person" and
 "safety" model types — Fire has no reason to trigger Face).
+
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) -- every job using the same
+fire.pt file shares one detector instance and takes turns.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin.
 """
 
 from __future__ import annotations
@@ -10,7 +16,6 @@ from __future__ import annotations
 import dataclasses
 import os
 import threading
-import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -24,12 +29,12 @@ from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.fire.pt.fire_pt_detector import FirePtDetector
 from slave.processes.worker.models.fire.severity import compute_severity
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
-from slave.profiling.profiler import Profiler
+
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class FirePtWorker:
+class FirePtWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -53,7 +58,6 @@ class FirePtWorker:
         self._profiler = Profiler(model_name=assignment.model_name)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = FirePtDetector(model_path, model_config, assignment.model_name)
 
         url = job.camera_stream
         self._frame_reader = FrameReader(worker_key, url)
@@ -80,19 +84,13 @@ class FirePtWorker:
             frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
             if frame is None:
                 continue
-            # Queue‑wait measurement (ms)
-            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
             try:
-                self._profiler.start()
                 self._process_frame(frame)
-                self._profiler.stop()
-                self._profiling_publisher.publish(self._profiler.report())
             except Exception:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
+
     def _process_frame(self, frame) -> None:
-        self._profiler.mark("preprocess")
         fire_detections = self._detector.detect(frame.image)
-        self._profiler.mark("inference")
 
         if fire_detections:
             frame_height, frame_width = (int(v) for v in frame.image.shape[:2])
@@ -151,10 +149,10 @@ class FirePtWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector is NOT released here -- it is shared across
+        # every job using this model_path. unregister_job() (called
+        # before _cleanup) already releases it, but only once this was
+        # the last job using that model_path.
         try:
             self._video_manager.close()
         except Exception:

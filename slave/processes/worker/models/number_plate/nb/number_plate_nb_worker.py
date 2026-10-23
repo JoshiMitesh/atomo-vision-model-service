@@ -1,24 +1,43 @@
 """Standalone Number-Plate `.nb` worker -- a jobs.yaml entry with
 model_type: "number_plate", independent of any Person/Safety job.
 
-Same structure as fire_nb_worker.py (own detector + own thread per job,
-no shared scheduler) plus this model's per-job NpuPlateEnricher
-(npu_plate_enricher.py: IoU tracking + OCR + evidence-weighted plate voting,
-ported from the board-verified alpr_npu.py; the `.pt` worker keeps its own).
+Uses the shared SchedulerBackedWorker mixin
+(runtimes/common/round_robin_scheduler.py) instead of owning its own
+NbRuntime handle + thread -- the A311D NPU can only run one model
+instance at a time, and independent per-job handles deadlock once two
+or more Number-Plate `.nb` jobs are active together (confirmed live:
+two concurrent jobs each got exactly one successful NPU inference,
+then both went silent for the rest of the run). Every job using the
+same number_plate.nb file now shares one handle and takes turns.
+start()/stop()/is_alive()/the detections callback are all inherited
+from the mixin -- only _attach_scheduler() (in __init__),
+_process_frame(), and _cleanup() are written here.
 
-NOTE -- NPU sharing: like Fire/Face/Safety `.nb` workers (and unlike
-Person's round-robin scheduler), this owns an independent NbRuntime
-handle. If a Number-Plate `.nb` job runs concurrently with another
-`.nb` model on the same board they drive the NPU independently; see
-fire_nb_worker.py's note for the caveat and the eventual fix
-(generalizing the round-robin scheduler across model types).
+Per-job PlateEnricher (plate_enricher.py: tracking + OCR + plate-
+number voting -- the SAME module the `.pt` path uses, not a separate
+NPU-specific port) stays per-job, never shared -- a different
+camera's plate history must never mix with another's (CLAUDE.md SS20).
+Only `detect()` (the raw box detector) and the NPU handle itself are
+shared, because the hardware forces it.
+
+Used to have its own npu_plate_enricher.py/npu_plate_ocr.py/
+npu_plate_tracker.py, independently written and independently tuned
+from the `.pt` path's. That duplication was the direct cause of two
+bugs live-testing found: npu_plate_ocr.py's perspective-correction
+fallback silently truncated the last character of every read of a
+plate (e.g. "GJ11S7924" published as "GJ11S792", every single time --
+.pt's plate_ocr.py never warped the crop at all and never had this
+bug), and npu_plate_enricher.py's confirmation threshold had quietly
+drifted to require 3 matching reads against .pt's 2, a stricter bar
+nobody had decided on, just never kept in sync. Merging onto the one
+proven implementation removes the possibility of that kind of drift
+recurring, and gives `.nb` `.pt`'s full 4-way OCR voting (2 pad ratios
+x raw/enhanced) instead of the 2-way vote npu_plate_ocr.py had.
 """
 
 from __future__ import annotations
 
 import os
-import threading
-import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -31,14 +50,13 @@ from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.number_plate.nb.number_plate_nb_detector import NumberPlateNbDetector
-from slave.processes.worker.models.number_plate.npu_plate_enricher import NpuPlateEnricher
+from slave.processes.worker.models.number_plate.plate_enricher import PlateEnricher
 from slave.processes.worker.worker_factory import WorkerIdentity
+from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
 
-FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
-
-class NumberPlateNbWorker:
+class NumberPlateNbWorker(SchedulerBackedWorker):
     def __init__(
         self,
         job: JobConfig,
@@ -61,63 +79,44 @@ class NumberPlateNbWorker:
         self._profiling_publisher = profiling_publisher
         self._log = get_logger(__name__, job_id=job.job_id)
 
-        library_file = model_config.get("nb", {}).get("library_file", "")
+        nb_cfg = model_config.get("nb", {})
+        library_file = nb_cfg.get("library_file", "")
         model_path = os.path.join(models_dir, assignment.model_name)
         library_path = os.path.join(models_dir, library_file) if library_file else None
-        self._detector = NumberPlateNbDetector(model_path, library_path, model_config, assignment.model_name)
-        self._enricher = NpuPlateEnricher(model_config)
-        target_fps = float(model_config.get("nb", {}).get("target_fps", 12))
-        self._min_interval = 1.0 / target_fps if target_fps > 0 else 0.0
+        self._enricher = PlateEnricher(model_config)
 
         url = job.camera_stream
-        self._frame_reader = FrameReader(worker_key, url)
-
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(
-            target=self._run, name=f"number-plate-nb-{worker_key}", daemon=True
+        # Match the .pt path's FrameReader (always decode_every_n_frames=1)
+        # -- previously defaulted to 3, giving .nb a third as many chances
+        # to catch a passing plate as .pt got.
+        self._frame_reader = FrameReader(
+            worker_key, url, decode_every_n_frames=max(1, int(nb_cfg.get("decode_every_n_frames", 1)))
         )
 
-    def start(self) -> None:
-        self._frame_reader.start()
-        self._thread.start()
-        self._log.info("number_plate .nb worker started")
+        self._attach_scheduler(
+            model_path,
+            build_detector=lambda: NumberPlateNbDetector(
+                model_path, library_path, model_config, assignment.model_name
+            ),
+            target_fps=float(nb_cfg.get("target_fps", 12.0)),
+            process_interval=float(nb_cfg.get("process_interval", 0.0)),
+        )
 
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("number_plate .nb worker stopped")
+    def _process_frame(self, frame, raw_detections) -> None:
+        plate_detections = self._enricher.enrich(
+            frame.image,
+            raw_detections,
+            frame.frame_id,
+            frame_timestamp=frame.timestamp,
+        )
 
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        # alpr_npu.py caps NPU inference at NPU_FPS (12): running the NPU
-        # plus per-track OCR on every camera frame is far too heavy for
-        # the board. Sleep off the rest of the interval, then take the
-        # newest frame (FrameReader keeps only the latest).
-        last_started = 0.0
-        while not self._stop_event.is_set():
-            wait = self._min_interval - (time.monotonic() - last_started)
-            if wait > 0 and self._stop_event.wait(wait):
-                break
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            last_started = time.monotonic()
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
-        raw_detections = self._detector.detect(frame.image)
-        plate_detections = self._enricher.enrich(frame.image, raw_detections, frame.frame_id)
-
-        # Only plates whose number was actually read are published (and
-        # uploaded) -- an unread plate would just be a null plate_number
-        # event. Video still records every detected plate.
-        readable_plates = [d for d in plate_detections if d.extra.get("plate_number")]
+        # Only plates whose number was actually read, and only the
+        # frame each track FIRST gets confirmed on, are published (and
+        # uploaded) -- take_publishable() hands back just this call's
+        # newly-confirmed tracks, so a vehicle sitting in frame across
+        # many turns produces one event, not one per frame it's still
+        # visible (same as the `.pt` path).
+        readable_plates = self._enricher.take_publishable()
 
         object_key = url = None
         annotated = None
@@ -166,10 +165,11 @@ class NumberPlateNbWorker:
             self._frame_reader.stop()
         except Exception:
             self._log.exception("error stopping frame reader")
-        try:
-            self._detector.release()
-        except Exception:
-            self._log.exception("error releasing detector")
+        # NOTE: the detector/NPU handle is NOT released here -- it is
+        # shared across every job using this model_path.
+        # scheduler_registry.unregister_job() (called above, before
+        # _cleanup) already releases it, but only once this was the
+        # last job using that model_path.
         try:
             self._enricher.release()
         except Exception:
