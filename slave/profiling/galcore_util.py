@@ -1,18 +1,34 @@
 import pathlib
 
+# def _read_file(p: pathlib.Path) -> str | None:
+#     try:
+#         return p.read_text().strip()
+#     except PermissionError:
+#         # Fallback to sudo cat if the file is not readable by the current user
+#         import subprocess
+#         try:
+#             out = subprocess.check_output(['sudo', 'cat', str(p)], text=True)
+#             return out.strip()
+#         except Exception:
+#             return None
+#     except Exception:
+#         return None
 def _read_file(p: pathlib.Path) -> str | None:
+    """Read a file, preferring a cached copy written by the privileged helper."""
+    # 1️⃣ Try the cached file first (written by the helper script)
+    cached = pathlib.Path('/tmp/npu_load')
+    if cached.is_file():
+        try:
+            return cached.read_text().strip()
+        except Exception:
+            pass
+
+    # 2️⃣ Fallback to a direct read (requires root). No sudo here.
     try:
         return p.read_text().strip()
-    except PermissionError:
-        # Fallback to sudo cat if the file is not readable by the current user
-        import subprocess
-        try:
-            out = subprocess.check_output(['sudo', 'cat', str(p)], text=True)
-            return out.strip()
-        except Exception:
-            return None
     except Exception:
         return None
+
 
 def _parse_percent(txt: str | None) -> float | None:
     if txt is None:
