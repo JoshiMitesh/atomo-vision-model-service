@@ -30,6 +30,9 @@ from slave.processes.worker.models.fire.severity import compute_severity
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
+import time
+from slave.profiling.profiler import Profiler
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 
 
 class FireNbWorker(SchedulerBackedWorker):
@@ -44,6 +47,7 @@ class FireNbWorker(SchedulerBackedWorker):
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
         identity: WorkerIdentity,
+        profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -53,6 +57,8 @@ class FireNbWorker(SchedulerBackedWorker):
         self._identity = identity
         self._model_config = model_config
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiling_publisher = profiling_publisher
+        self._profiler = Profiler(model_name=assignment.model_name)
 
         library_file = model_config.get("nb", {}).get("library_file", "")
         model_path = os.path.join(models_dir, assignment.model_name)
@@ -72,6 +78,9 @@ class FireNbWorker(SchedulerBackedWorker):
         )
 
     def _process_frame(self, frame, fire_detections) -> None:
+        self._profiler.start()
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         if fire_detections:
             frame_height, frame_width = (int(v) for v in frame.image.shape[:2])
             fire_detections = [
@@ -119,6 +128,8 @@ class FireNbWorker(SchedulerBackedWorker):
             width=width,
             height=height,
         )
+        self._profiler.stop()
+        self._profiling_publisher.publish(self._profiler.report())
         self._detection_publisher.publish_detection(result)
 
         if fire_detections:

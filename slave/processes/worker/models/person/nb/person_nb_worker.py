@@ -57,6 +57,8 @@ class PersonNbWorker(SchedulerBackedWorker):
         self._identity = identity
         self._face_controller = face_controller
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiling_publisher = profiling_publisher
+        self._profiler = Profiler(model_name=assignment.model_name)
         self._low_cpu_mode = bool(model_config.get("nb", {}).get("low_cpu_mode", True))
         self._publish_every_n_frames = max(1, int(model_config.get("nb", {}).get("publish_every_n_frames", 5)))
         self._minio_upload_interval = max(0.0, float(model_config.get("nb", {}).get("minio_upload_interval_seconds", 4.0)))
@@ -85,6 +87,9 @@ class PersonNbWorker(SchedulerBackedWorker):
         )
 
     def _process_frame(self, frame: Frame, person_detections: list) -> None:
+        self._profiler.start()
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         self._frame_counter += 1
         if self._frame_counter % self._publish_every_n_frames != 0:
             return
@@ -137,6 +142,8 @@ class PersonNbWorker(SchedulerBackedWorker):
             height=height,
         )
         self._detection_publisher.publish_detection(result)
+        self._profiler.stop()
+        self._profiling_publisher.publish(self._profiler.report())
 
         # Video recording is intentionally disabled in low-CPU mode because
         # the reference script does not spend its hot loop doing this work.

@@ -81,36 +81,18 @@ class NumberPlatePtWorker(SchedulerBackedWorker):
             process_interval=float(pt_cfg.get("process_interval", 0.0)),
         )
 
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("number_plate .pt worker stopped")
 
-    def is_alive(self) -> bool:
-        return self._thread.is_alive()
-
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._profiler.start()
-                self._process_frame(frame)
-                self._profiler.stop()
-                self._profiling_publisher.publish(self._profiler.report())
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
-
-    def _process_frame(self, frame) -> None:
+    def _process_frame(self, frame, raw_detections=None) -> None:
         # preprocessing – any lightweight pre‑work before detection
         self._profiler.mark('preprocess')
         # Simulate lightweight preprocessing (e.g., image resize) – this will be timed
         time.sleep(0.005)  # ~5 ms
-        raw_detections = self._detector.detect(frame.image)
+        # If raw detections are not supplied by the scheduler, run detection here.
+        if raw_detections is None:
+            raw_detections = self._detector.detect(frame.image)
         self._profiler.mark('inference')
         # queue wait measurement (time spent waiting for frame)
+        self._profiler.start()
         if hasattr(frame, 'timestamp'):
             self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         plate_detections = self._enricher.enrich(
@@ -122,6 +104,7 @@ class NumberPlatePtWorker(SchedulerBackedWorker):
         # post‑process – after enrichment work is done
         self._profiler.mark('postprocess')
         event_plates = self._enricher.take_publishable()
+        self._profiler.stop()
 
         # Only plates whose number was actually read are published (and
         # uploaded) -- an unread plate would just be a null plate_number
@@ -142,29 +125,30 @@ class NumberPlatePtWorker(SchedulerBackedWorker):
             height, width = (int(v) for v in frame.image.shape[:2])
 
         telemetry = group_detections(readable_plates, self._job, tracking_id=object_key)
+        self._profiling_publisher.publish(self._profiler.report())
 
         result = DetectionResult(
-            job_id=self._job.job_id,
-            frame_id=frame.frame_id,
-            occurred_at=ist_now_iso(),
-            device_name=self._identity.device_name,
-            branch_id=self._job.branch_id,
-            branch_name=self._job.branch_name,
-            device_id=self._identity.device_id,
-            zone_id=self._job.zone_id,
-            zone_name=self._job.zone_name,
-            camera_id=self._job.camera_id,
-            camera_name=self._job.camera_name,
-            camera_stream=self._job.camera_stream,
-            camera_status=self._frame_reader.get_status(),
-            latitude=self._job.latitude,
-            longitude=self._job.longitude,
-            telemetry=telemetry,
-            object_key=object_key,
-            url=url,
-            width=width,
-            height=height,
-        )
+                job_id=self._job.job_id,
+                frame_id=frame.frame_id,
+                occurred_at=ist_now_iso(),
+                device_name=self._identity.device_name,
+                branch_id=self._job.branch_id,
+                branch_name=self._job.branch_name,
+                device_id=self._identity.device_id,
+                zone_id=self._job.zone_id,
+                zone_name=self._job.zone_name,
+                camera_id=self._job.camera_id,
+                camera_name=self._job.camera_name,
+                camera_stream=self._job.camera_stream,
+                camera_status=self._frame_reader.get_status(),
+                latitude=self._job.latitude,
+                longitude=self._job.longitude,
+                telemetry=telemetry,
+                object_key=object_key,
+                url=url,
+                width=width,
+                height=height,
+            )
         self._detection_publisher.publish_detection(result)
 
         if plate_detections:
@@ -185,8 +169,8 @@ class NumberPlatePtWorker(SchedulerBackedWorker):
                 processing_fps,
                 source_lag,
             )
-            self._speed_window_frames = 0
-            self._speed_window_start = time.monotonic()
+        self._speed_window_frames = 0
+        self._speed_window_start = time.monotonic()
 
     def _cleanup(self) -> None:
         try:

@@ -16,6 +16,7 @@ all inherited from the mixin.
 from __future__ import annotations
 
 import os
+import time
 
 import cv2
 
@@ -35,6 +36,8 @@ from slave.processes.worker.face.face_quality import passes_face_quality_gate
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
+from slave.profiling.profiler import Profiler
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 
 
 class FacePtWorker(SchedulerBackedWorker):
@@ -49,6 +52,7 @@ class FacePtWorker(SchedulerBackedWorker):
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
         identity: WorkerIdentity,
+        profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -56,6 +60,8 @@ class FacePtWorker(SchedulerBackedWorker):
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
         self._identity = identity
+        self._profiling_publisher = profiling_publisher
+        self._profiler = Profiler(model_name=assignment.model_name)
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
@@ -93,7 +99,10 @@ class FacePtWorker(SchedulerBackedWorker):
             if not bool(detection.extra.get("face_visible", False)):
                 continue
             quality_detections.append(detection)
-
+        # Record queue wait if timestamp is available
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
+        self._profiler.start()
         self._face_tracker.track_detections(quality_detections)
 
         # Publish/upload only when a face track first appears. A continuously
@@ -146,6 +155,8 @@ class FacePtWorker(SchedulerBackedWorker):
 
         if detections:
             self._video_manager.feed_frame(draw_detections(frame.image, detections))
+        self._profiler.stop()
+        self._profiling_publisher.publish(self._profiler.report())
 
     @staticmethod
     def _crop_face(frame_image, bbox):

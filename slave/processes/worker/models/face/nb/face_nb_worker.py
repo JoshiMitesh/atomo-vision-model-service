@@ -28,6 +28,9 @@ from slave.processes.worker.models.face.nb.face_nb_detector import FaceNbDetecto
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 from slave.utils.time_utils import ist_now_iso
+import time
+from slave.profiling.profiler import Profiler
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 
 
 class FaceNbWorker(SchedulerBackedWorker):
@@ -42,6 +45,7 @@ class FaceNbWorker(SchedulerBackedWorker):
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
         identity: WorkerIdentity,
+profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -50,6 +54,8 @@ class FaceNbWorker(SchedulerBackedWorker):
         self._video_manager = video_manager
         self._identity = identity
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiling_publisher = profiling_publisher
+        self._profiler = Profiler(model_name=assignment.model_name)
 
         library_file = model_config.get("nb", {}).get("library_file", "")
         model_path = os.path.join(models_dir, assignment.model_name)
@@ -71,6 +77,10 @@ class FaceNbWorker(SchedulerBackedWorker):
         )
 
     def _process_frame(self, frame, detections) -> None:
+        # start profiling
+        self._profiler.start()
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         # Upload one cropped photo per detected face (not the whole
         # camera frame). media.object_key/url/width/height describe the
         # first crop; media.crops lists every saved crop.
@@ -125,6 +135,8 @@ class FaceNbWorker(SchedulerBackedWorker):
             height=height,
             crops=crops,
         )
+        self._profiler.stop()
+        self._profiling_publisher.publish(self._profiler.report())
         self._detection_publisher.publish_detection(result)
 
         if detections:

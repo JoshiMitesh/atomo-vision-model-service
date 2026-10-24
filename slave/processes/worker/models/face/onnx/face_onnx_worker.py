@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -23,6 +24,8 @@ from slave.processes.worker.models.face.onnx.face_onnx_detector import FaceOnnxD
 from slave.processes.worker.models.face.face_tracker import DEFAULT_IOU_THRESHOLD, DEFAULT_STALE_SECONDS, FaceTracker
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
+from slave.profiling.profiler import Profiler
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 
 FRAME_POLL_TIMEOUT_SECONDS = 1.0
 
@@ -39,6 +42,7 @@ class FaceOnnxWorker:
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
         identity: WorkerIdentity,
+        profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -47,6 +51,8 @@ class FaceOnnxWorker:
         self._video_manager = video_manager
         self._identity = identity
         self._log = get_logger(__name__, job_id=job.job_id)
+        self._profiling_publisher = profiling_publisher
+        self._profiler = Profiler(model_name=assignment.model_name)
 
         model_path = os.path.join(models_dir, assignment.model_name)
         self._detector = with_embedding(
@@ -90,6 +96,9 @@ class FaceOnnxWorker:
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
+        self._profiler.start()
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         detections = self._detector.detect(frame.image)
         new_faces = self._face_tracker.update(detections)
 
@@ -133,6 +142,8 @@ class FaceOnnxWorker:
             height=height,
             crops=crops,
         )
+        self._profiler.stop()
+        self._profiling_publisher.publish(self._profiler.report())
         self._detection_publisher.publish_detection(result)
 
         if detections:

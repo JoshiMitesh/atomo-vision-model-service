@@ -1,28 +1,62 @@
-"""Publisher for model profiling telemetry.
+"""ProfilingPublisher writes telemetry payloads to local JSON log files.
 
-Publishes telemetry dictionaries produced by :class:`slave.profiling.profiler.Profiler` to the
-configured NATS profiling subject.
+The original implementation published the payload to a NATS subject. For the new
+requirement we persist the data locally in a ``logs/profiling`` directory under
+the repository root. Each payload is appended as a single JSON line (JSONL
+format) to a file named ``<model_name>_YYYYMMDD.jsonl``. The directory is
+created automatically if it does not exist.
 """
 
 from __future__ import annotations
 
-from slave.logging.logger import get_logger
-from slave.processes.publisher.publisher import Publisher
+import json
+import os
+from datetime import datetime
+from pathlib import Path
 
-log = get_logger(__name__)
+# Keeping compatibility with the original constructor signature.
 
 
 class ProfilingPublisher:
-    def __init__(self, publisher: Publisher, profiling_subject: str) -> None:
+    """Write profiling telemetry to local JSON log files.
+
+    Parameters
+    ----------
+    publisher: Any
+        Retained for compatibility; not used in the file‑logging version.
+    profiling_subject: str
+        Retained for compatibility; not used.
+    """
+
+    def __init__(self, publisher, profiling_subject: str) -> None:
+        # Preserve the arguments for API compatibility but ignore them.
         self._publisher = publisher
         self._subject = profiling_subject
+        # Resolve the repository root (two levels up from this file) and create
+        # a ``logs/profiling`` directory.
+        self._log_dir = Path(__file__).resolve().parents[2] / "logs" / "profiling"
+        self._log_dir.mkdir(parents=True, exist_ok=True)
+
+    def _log_path(self, model_name: str) -> Path:
+        """Return the path of the log file for *model_name* for today.
+
+        The file name format is ``<model_name>_YYYYMMDD.jsonl``.
+        """
+        date_str = datetime.utcnow().strftime("%Y%m%d")
+        safe_name = model_name.replace(" ", "_") if model_name else "unknown"
+        return self._log_dir / f"{safe_name}_{date_str}.jsonl"
 
     def publish(self, telemetry: dict) -> None:
-        """Publish a profiling telemetry payload.
+        """Append the telemetry dictionary as a JSON line to the appropriate log.
 
-        The payload is expected to be a JSON‑serializable ``dict``.
+        Errors are printed to ``stderr`` to avoid crashing the worker.
         """
         try:
-            self._publisher.publish(self._subject, telemetry)
-        except Exception:
-            log.exception("failed to publish profiling telemetry")
+            model_name = telemetry.get("model_name", "unknown")
+            log_file = self._log_path(model_name)
+            # Open in append‑binary mode to avoid encoding issues.
+            with open(log_file, "ab") as f:
+                line = json.dumps(telemetry, ensure_ascii=False).encode("utf-8") + b"\n"
+                f.write(line)
+        except Exception as exc:
+            print(f"[ProfilingPublisher] failed to write telemetry: {exc}", file=os.sys.stderr)

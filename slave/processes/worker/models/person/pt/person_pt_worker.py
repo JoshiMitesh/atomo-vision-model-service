@@ -10,6 +10,9 @@ from the mixin.
 """
 from __future__ import annotations
 
+from asyncio import timeouts
+
+
 
 from slave.runtimes.common.round_robin_scheduler import SchedulerBackedWorker
 
@@ -90,6 +93,9 @@ class PersonPtWorker(SchedulerBackedWorker):
 
     def _process_frame(self, frame) -> None:
         person_detections = self._detector.detect(frame.image)
+        self._profiler.start()
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         face_detections = self._face_controller.update(frame.image, person_detections)
         self._profiler.mark("postprocess")
         detections = person_detections + face_detections
@@ -140,6 +146,8 @@ class PersonPtWorker(SchedulerBackedWorker):
             width=width,
             height=height,
         )
+        self._profiler.stop()
+        self._profiling_publisher.publish(self._profiler.report())
         self._detection_publisher.publish_detection(result)
 
         # Video only records while a person is actually in frame, with

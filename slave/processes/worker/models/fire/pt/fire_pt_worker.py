@@ -16,8 +16,12 @@ from __future__ import annotations
 import dataclasses
 import os
 import threading
+import time
+import time
 
 from slave.logging.logger import get_logger
+from slave.profiling.profiler import Profiler
+from slave.processes.publisher.profiling_publisher import ProfilingPublisher
 from slave.models.detection import group_detections
 from slave.models.job import JobConfig, ModelAssignment
 from slave.processes.detection.detection_result import DetectionResult
@@ -46,6 +50,7 @@ class FirePtWorker(SchedulerBackedWorker):
         frame_uploader: FrameUploader,
         video_manager: VideoManager,
         identity: WorkerIdentity,
+        profiling_publisher: ProfilingPublisher,
     ) -> None:
         self._job = job
         self._worker_key = worker_key
@@ -53,9 +58,11 @@ class FirePtWorker(SchedulerBackedWorker):
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
         self._identity = identity
+        self._profiling_publisher = profiling_publisher
+        self._profiler = Profiler(model_name=assignment.model_name)
         self._model_config = model_config
         self._log = get_logger(__name__, job_id=job.job_id)
-        self._profiler = Profiler(model_name=assignment.model_name)
+        # Removed duplicate profiler initialization
 
         model_path = os.path.join(models_dir, assignment.model_name)
 
@@ -90,6 +97,10 @@ class FirePtWorker(SchedulerBackedWorker):
                 self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
 
     def _process_frame(self, frame) -> None:
+        self._profiler.start()
+        # Record queue wait if timestamp is available
+        if hasattr(frame, 'timestamp'):
+            self._profiler.record_queue_wait((time.time() - frame.timestamp) * 1000.0)
         fire_detections = self._detector.detect(frame.image)
 
         if fire_detections:
@@ -139,6 +150,8 @@ class FirePtWorker(SchedulerBackedWorker):
             width=width,
             height=height,
         )
+        self._profiler.stop()
+        self._profiling_publisher.publish(self._profiler.report())
         self._detection_publisher.publish_detection(result)
 
         if fire_detections:
