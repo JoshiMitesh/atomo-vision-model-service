@@ -16,7 +16,7 @@ import pathlib
 def _read_file(p: pathlib.Path) -> str | None:
     """Read a file, preferring a cached copy written by the privileged helper."""
     # 1️⃣ Try the cached file first (written by the helper script)
-    cached = pathlib.Path('/tmp/npu_load')
+    cached = pathlib.Path('/var/tmp/npu_load')
     if cached.is_file():
         try:
             return cached.read_text().strip()

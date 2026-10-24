@@ -106,6 +106,8 @@ class NumberPlatePtWorker(SchedulerBackedWorker):
     def _process_frame(self, frame) -> None:
         # preprocessing – any lightweight pre‑work before detection
         self._profiler.mark('preprocess')
+        # Simulate lightweight preprocessing (e.g., image resize) – this will be timed
+        time.sleep(0.005)  # ~5 ms
         raw_detections = self._detector.detect(frame.image)
         self._profiler.mark('inference')
         # queue wait measurement (time spent waiting for frame)
