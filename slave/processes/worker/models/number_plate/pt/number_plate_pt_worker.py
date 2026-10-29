@@ -50,6 +50,8 @@ class NumberPlatePtWorker:
         self._frame_uploader = frame_uploader
         self._video_manager = video_manager
         self._identity = identity
+        self._cleanup_lock = threading.Lock()
+        self._cleaned = False
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
@@ -89,22 +91,36 @@ class NumberPlatePtWorker:
 
     def stop(self) -> None:
         self._stop_event.set()
-        self._thread.join(timeout=10)
-        self._cleanup()
-        self._log.info("number_plate .pt worker stopped")
+        if self._thread.ident is None:
+            # Safely handle stop-before-start or a failed thread start.
+            self._cleanup()
+        else:
+            self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                self._log.error(
+                    "worker thread did not stop within 10 seconds; "
+                    "cleanup will run when the worker exits"
+                )
+            else:
+                self._cleanup()
+        self._log.info("number_plate .pt worker stop requested")
 
     def is_alive(self) -> bool:
         return self._thread.is_alive()
 
     def _run(self) -> None:
-        while not self._stop_event.is_set():
-            frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
-            if frame is None:
-                continue
-            try:
-                self._process_frame(frame)
-            except Exception:
-                self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
+        try:
+            while not self._stop_event.is_set():
+                frame = self._frame_reader.get_latest_frame(timeout=FRAME_POLL_TIMEOUT_SECONDS)
+                if frame is None:
+                    continue
+                try:
+                    self._process_frame(frame)
+                except Exception:
+                    self._log.exception("frame processing failed for frame_id=%s", frame.frame_id)
+        finally:
+            # Do not release the detector while inference may still be running.
+            self._cleanup()
 
     def _process_frame(self, frame) -> None:
         raw_detections = self._detector.detect(frame.image)
@@ -205,6 +221,11 @@ class NumberPlatePtWorker:
             self._speed_window_start = time.monotonic()
 
     def _cleanup(self) -> None:
+        # stop() and _run()'s finally block may both request cleanup.
+        with self._cleanup_lock:
+            if self._cleaned:
+                return
+            self._cleaned = True
         try:
             self._frame_reader.stop()
         except Exception:
