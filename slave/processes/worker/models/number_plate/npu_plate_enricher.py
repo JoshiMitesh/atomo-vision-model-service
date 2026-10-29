@@ -64,7 +64,8 @@ class NpuPlateEnricher:
         enriched: List[Detection] = []
 
         for detection, track in self._tracker.update(detections):
-            if self._ocr is not None and frame_number - track.last_ocr_frame >= self._ocr_interval_frames:
+            ocr_attempted = self._ocr is None or frame_number - track.last_ocr_frame >= self._ocr_interval_frames
+            if self._ocr is not None and ocr_attempted:
                 track.last_ocr_frame = frame_number
                 raw_text, raw_conf = self._read_plate(frame, detection.bbox)
                 if raw_text and raw_conf >= self._min_ocr_conf:
@@ -81,7 +82,17 @@ class NpuPlateEnricher:
                 },
             )
             enriched.append(enriched_detection)
-            if publish and not track.published:
+
+            # Emit the first event only after OCR has had a chance to run.
+            # An unreadable plate is still a real detection and is published
+            # with a null plate_number. If later OCR becomes stable, publish
+            # another event containing the recognized number.
+            if not track.detection_event_published and ocr_attempted:
+                track.detection_event_published = True
+                self._publish_queue.append(enriched_detection)
+                if publish:
+                    track.published = True
+            elif publish and not track.published:
                 track.published = True
                 self._publish_queue.append(enriched_detection)
         return enriched
