@@ -37,7 +37,7 @@ class NpuPlateEnricher:
 
         self._min_ocr_conf = float(cfg.get("min_ocr_conf", 0.45))
         self._publish_only_stable = bool(cfg.get("publish_only_stable", True))
-        self._unrecognized_after_frames = max(1, int(cfg.get("unrecognized_after_frames", 5)))
+        self._unrecognized_after_frames = max(1, int(cfg.get("unrecognized_after_frames", 3)))
         self._ocr_interval_frames = max(1, int(cfg.get("interval_frames", 3)))
         self._publish_queue: List[Detection] = []
 
@@ -78,6 +78,7 @@ class NpuPlateEnricher:
             enriched_detection = replace(
                 detection,
                 extra={
+                    "plate_track_id": track.track_id,
                     "plate_number": best_text if publish else None,
                     "plate_confidence": best_conf if publish else None,
                 },
@@ -89,7 +90,7 @@ class NpuPlateEnricher:
             # with a null plate_number. If later OCR becomes stable, publish
             # another event containing the recognized number.
             # Publish a readable/stable result immediately. Only emit
-            # "No Recognition" after five observations of this same plate.
+            # "No Recognition" after three observations of this same plate.
             if publish and not track.published:
                 track.published = True
                 track.detection_event_published = True
