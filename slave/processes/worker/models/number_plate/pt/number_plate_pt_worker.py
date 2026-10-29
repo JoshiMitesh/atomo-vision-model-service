@@ -23,6 +23,7 @@ from slave.processes.publisher.detection_publisher import DetectionPublisher
 from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.number_plate.plate_enricher import PlateEnricher
+from slave.processes.worker.models.number_plate.shared_detector import acquire_shared_detector
 from slave.processes.worker.models.number_plate.pt.number_plate_pt_detector import NumberPlatePtDetector
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
@@ -52,7 +53,20 @@ class NumberPlatePtWorker:
         self._log = get_logger(__name__, job_id=job.job_id)
 
         model_path = os.path.join(models_dir, assignment.model_name)
-        self._detector = NumberPlatePtDetector(model_path, model_config, assignment.model_name)
+        pt_cfg = model_config.get("pt", {})
+        detector_key = (
+            "number_plate_pt",
+            os.path.realpath(model_path),
+            str(pt_cfg.get("backend", "ultralytics")),
+            str(pt_cfg.get("device", "auto")),
+            bool(pt_cfg.get("half", False)),
+            str(pt_cfg.get("oim_model", "")),
+            float(pt_cfg.get("oim_conf_thresh", 0.25)),
+        )
+        self._detector = acquire_shared_detector(
+            detector_key,
+            lambda: NumberPlatePtDetector(model_path, model_config, assignment.model_name),
+        )
         self._enricher = PlateEnricher(model_config)
 
         url = job.camera_stream
@@ -145,6 +159,29 @@ class NumberPlatePtWorker:
             height=height,
         )
         self._detection_publisher.publish_detection(result)
+
+        # Bounding boxes are a separate, live-only stream. Do not wait for
+        # OCR voting before exposing a plate that the detector already sees.
+        if plate_detections:
+            live_result = DetectionResult(
+                job_id=self._job.job_id,
+                frame_id=frame.frame_id,
+                occurred_at=ist_now_iso(),
+                device_name=self._identity.device_name,
+                branch_id=self._job.branch_id,
+                branch_name=self._job.branch_name,
+                device_id=self._identity.device_id,
+                zone_id=self._job.zone_id,
+                zone_name=self._job.zone_name,
+                camera_id=self._job.camera_id,
+                camera_name=self._job.camera_name,
+                camera_stream=self._job.camera_stream,
+                camera_status=self._frame_reader.get_status(),
+                latitude=self._job.latitude,
+                longitude=self._job.longitude,
+                telemetry=group_detections(plate_detections, self._job, tracking_id=None),
+            )
+            self._detection_publisher.publish_live_detection(live_result, self._job.camera_id)
 
         if plate_detections:
             self._video_manager.feed_frame(annotated)
