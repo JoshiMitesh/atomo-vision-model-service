@@ -121,6 +121,7 @@ ocr:
   # A plate is published only when this many reads agree on the exact
   # same plate string (2 stops a single wrong read being published).
   min_confirmations: 2
+  unrecognized_after_frames: 3  # Publish No Recognition after three observations of the same track
   validate_indian_plate: true
 # Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
 # ported from the board-verified alpr_npu.py (npu_plate_enricher.py).
@@ -147,6 +148,7 @@ npu_ocr:
   # false -> publish the current best text as soon as it is a valid
   #          Indian-format plate (earlier, but may still change).
   publish_only_stable: true
+  unrecognized_after_frames: 3  # Publish No Recognition after three observations of the same track
 
 # Cross-frame plate tracking (nearest-center greedy match) so OCR
 # accumulates votes for the same physical plate instead of restarting
