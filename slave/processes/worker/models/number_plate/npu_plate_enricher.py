@@ -37,6 +37,8 @@ class NpuPlateEnricher:
 
         self._min_ocr_conf = float(cfg.get("min_ocr_conf", 0.45))
         self._publish_only_stable = bool(cfg.get("publish_only_stable", True))
+        self._ocr_interval_frames = max(1, int(cfg.get("interval_frames", 3)))
+        self._publish_queue: List[Detection] = []
 
         self._tracker = NpuPlateTracker(
             iou_threshold=float(cfg.get("track_iou_threshold", 0.20)),
@@ -62,7 +64,8 @@ class NpuPlateEnricher:
         enriched: List[Detection] = []
 
         for detection, track in self._tracker.update(detections):
-            if self._ocr is not None:
+            if self._ocr is not None and frame_number - track.last_ocr_frame >= self._ocr_interval_frames:
+                track.last_ocr_frame = frame_number
                 raw_text, raw_conf = self._read_plate(frame, detection.bbox)
                 if raw_text and raw_conf >= self._min_ocr_conf:
                     track.add_ocr(raw_text, raw_conf)
@@ -70,7 +73,7 @@ class NpuPlateEnricher:
             best_text, best_conf, stable, _ = track.get_best_result()
             publish = bool(best_text) and (stable if self._publish_only_stable else is_indian_plate(best_text))
 
-            enriched.append(
+            enriched_detection = replace(
                 replace(
                     detection,
                     extra={
@@ -79,7 +82,16 @@ class NpuPlateEnricher:
                     },
                 )
             )
+            enriched.append(enriched_detection)
+            if publish and not track.published:
+                track.published = True
+                self._publish_queue.append(enriched_detection)
         return enriched
+
+    def take_publishable(self) -> List[Detection]:
+        queued = self._publish_queue
+        self._publish_queue = []
+        return queued
 
     def _read_plate(self, frame: np.ndarray, bbox: Tuple[float, float, float, float]) -> Tuple[str, float]:
         h, w = frame.shape[:2]
