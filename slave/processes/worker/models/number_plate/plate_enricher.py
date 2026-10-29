@@ -120,9 +120,14 @@ class PlateEnricher:
             ocr_attempted = self._ocr is None or track.last_ocr_frame == frame_number
             if not track.detection_event_published and ocr_attempted:
                 track.detection_event_published = True
-                self._publish_queue.append(enriched_detection)
                 if confirmed:
                     track.published = True
+                    if not self._was_plate_published(track.current_text):
+                        self._publish_queue.append(enriched_detection)
+                else:
+                    # Keep unreadable detections visible, but recognized plates
+                    # are deduplicated across newly-created tracks below.
+                    self._publish_queue.append(enriched_detection)
             elif confirmed and not track.published:
                 track.published = True
                 if not self._was_plate_published(track.current_text):
