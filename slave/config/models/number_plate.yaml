@@ -110,8 +110,8 @@ so:
 ocr:
   enabled: true
   model_name: cct-s-v2-global-model   # confirmed working in anpr_night/anpr.py
-  interval_frames: 1          # OCR every processed frame, like anpr_night
-  search_interval_frames: 1   # OCR rate while a track has no accepted read yet
+  interval_frames: 5          # Recheck confirmed tracks every fifth processed frame
+  search_interval_frames: 3   # Search unconfirmed tracks without running OCR on every frame
   min_score: 0.0              # anpr_night has no score gate; plate_format.py does the filtering
   pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
   # Perspective-rectify output size -- npu_ocr (the .nb/.so path) only.
@@ -133,6 +133,7 @@ npu_ocr:
   # If OCR fails to initialise the job still runs detection-only.
   engine: onnxruntime
   min_ocr_conf: 0.45           # raw OCR reads below this are ignored
+  interval_frames: 3           # bound OCR CPU per camera while preserving repeated evidence
   track_iou_threshold: 0.20    # detection<->track match (IoU)
   track_max_missed: 18         # frames a track survives without a detection
   max_history: 25              # OCR reads kept per track
