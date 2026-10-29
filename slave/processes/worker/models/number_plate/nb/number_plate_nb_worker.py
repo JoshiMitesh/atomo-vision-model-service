@@ -31,6 +31,7 @@ from slave.processes.stream.frame_reader import FrameReader
 from slave.processes.video.video_manager import VideoManager
 from slave.processes.worker.models.number_plate.nb.number_plate_nb_detector import NumberPlateNbDetector
 from slave.processes.worker.models.number_plate.npu_plate_enricher import NpuPlateEnricher
+from slave.processes.worker.models.number_plate.shared_detector import acquire_shared_detector
 from slave.processes.worker.worker_factory import WorkerIdentity
 from slave.utils.time_utils import ist_now_iso
 
@@ -61,7 +62,19 @@ class NumberPlateNbWorker:
         library_file = model_config.get("nb", {}).get("library_file", "")
         model_path = os.path.join(models_dir, assignment.model_name)
         library_path = os.path.join(models_dir, library_file) if library_file else None
-        self._detector = NumberPlateNbDetector(model_path, library_path, model_config, assignment.model_name)
+        nb_cfg = model_config.get("nb", {})
+        detector_key = (
+            "number_plate_nb",
+            os.path.realpath(model_path),
+            os.path.realpath(library_path) if library_path else "",
+            int(nb_cfg.get("level", 0)),
+            int(nb_cfg.get("device_id", 0)),
+            str(nb_cfg.get("board", "Electron")),
+        )
+        self._detector = acquire_shared_detector(
+            detector_key,
+            lambda: NumberPlateNbDetector(model_path, library_path, model_config, assignment.model_name),
+        )
         self._enricher = NpuPlateEnricher(model_config)
         target_fps = float(model_config.get("nb", {}).get("target_fps", 12))
         self._min_interval = 1.0 / target_fps if target_fps > 0 else 0.0
@@ -154,6 +167,29 @@ class NumberPlateNbWorker:
             height=height,
         )
         self._detection_publisher.publish_detection(result)
+
+        # Send raw boxes immediately on the live subject; recognized-plate
+        # events above remain filtered to plates with a confirmed number.
+        if plate_detections:
+            live_result = DetectionResult(
+                job_id=self._job.job_id,
+                frame_id=frame.frame_id,
+                occurred_at=ist_now_iso(),
+                device_name=self._identity.device_name,
+                branch_id=self._job.branch_id,
+                branch_name=self._job.branch_name,
+                device_id=self._identity.device_id,
+                zone_id=self._job.zone_id,
+                zone_name=self._job.zone_name,
+                camera_id=self._job.camera_id,
+                camera_name=self._job.camera_name,
+                camera_stream=self._job.camera_stream,
+                camera_status=self._frame_reader.get_status(),
+                latitude=self._job.latitude,
+                longitude=self._job.longitude,
+                telemetry=group_detections(plate_detections, self._job, tracking_id=None),
+            )
+            self._detection_publisher.publish_live_detection(live_result, self._job.camera_id)
 
         if plate_detections:
             self._video_manager.feed_frame(annotated)
