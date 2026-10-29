@@ -76,8 +76,8 @@ class NpuPlateEnricher:
             enriched_detection = replace(
                 detection,
                 extra={
-                        "plate_number": best_text if publish else None,
-                        "plate_confidence": best_conf if publish else None,
+                    "plate_number": best_text if publish else None,
+                    "plate_confidence": best_conf if publish else None,
                 },
             )
             enriched.append(enriched_detection)
