@@ -42,6 +42,7 @@ nats:
       - devices.*.register
       - devices.*.health
       - devices.*.detections
+      - detections.live.*
     subscribe:
       - _INBOX.>
       - "*.jobs.assign"
