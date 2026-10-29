@@ -63,6 +63,8 @@ class NpuPlateTrack:
         self.missed = 0
         self.last_ocr_frame = -1_000_000
         self.published = False
+        # Publish once after the first OCR attempt, even if no plate text is found.
+        self.detection_event_published = False
         self.history: List[dict] = []
         self.stable_text = ""
         self.total_valid = 0
