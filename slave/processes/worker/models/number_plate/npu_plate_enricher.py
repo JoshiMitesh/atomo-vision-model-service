@@ -96,9 +96,14 @@ class NpuPlateEnricher:
             # another event containing the recognized number.
             if not track.detection_event_published and ocr_attempted:
                 track.detection_event_published = True
-                self._publish_queue.append(enriched_detection)
                 if publish:
                     track.published = True
+                    if not self._was_plate_published(best_text):
+                        self._publish_queue.append(enriched_detection)
+                else:
+                    # Keep unreadable detections visible; only suppress repeat
+                    # events when a plate number has actually been recognized.
+                    self._publish_queue.append(enriched_detection)
             elif publish and not track.published:
                 track.published = True
                 if not self._was_plate_published(best_text):
