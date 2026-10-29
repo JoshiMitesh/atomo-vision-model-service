@@ -17,7 +17,6 @@ One instance per job, never shared (CLAUDE.md SS20).
 from __future__ import annotations
 
 from dataclasses import replace
-import time
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -40,12 +39,6 @@ class NpuPlateEnricher:
         self._publish_only_stable = bool(cfg.get("publish_only_stable", True))
         self._ocr_interval_frames = max(1, int(cfg.get("interval_frames", 3)))
         self._publish_queue: List[Detection] = []
-        # Prevent repeated event rows when a moving vehicle's plate is
-        # temporarily lost and reacquired as a fresh track.
-        self._published_plate_numbers: dict[str, float] = {}
-        self._plate_event_dedupe_seconds = max(
-            60.0, float(cfg.get("plate_event_dedupe_seconds", 1800))
-        )
 
         self._tracker = NpuPlateTracker(
             iou_threshold=float(cfg.get("track_iou_threshold", 0.20)),
@@ -98,34 +91,14 @@ class NpuPlateEnricher:
                 track.detection_event_published = True
                 if publish:
                     track.published = True
-                    if not self._was_plate_published(best_text):
-                        self._publish_queue.append(enriched_detection)
+                    self._publish_queue.append(enriched_detection)
                 else:
-                    # Keep unreadable detections visible; only suppress repeat
-                    # events when a plate number has actually been recognized.
+                    # Keep unreadable detections visible as their own events.
                     self._publish_queue.append(enriched_detection)
             elif publish and not track.published:
                 track.published = True
-                if not self._was_plate_published(best_text):
-                    self._publish_queue.append(enriched_detection)
+                self._publish_queue.append(enriched_detection)
         return enriched
-
-    def _was_plate_published(self, plate_number: str) -> bool:
-        normalized = "".join(ch for ch in plate_number.upper() if ch.isalnum())
-        if not normalized:
-            return False
-        now = time.monotonic()
-        cutoff = now - self._plate_event_dedupe_seconds
-        self._published_plate_numbers = {
-            plate: seen_at
-            for plate, seen_at in self._published_plate_numbers.items()
-            if seen_at >= cutoff
-        }
-        if normalized in self._published_plate_numbers:
-            log.debug("suppressing duplicate number-plate event for %s", normalized)
-            return True
-        self._published_plate_numbers[normalized] = now
-        return False
 
     def take_publishable(self) -> List[Detection]:
         queued = self._publish_queue
