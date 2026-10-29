@@ -58,12 +58,14 @@ class SharedDetectorLease:
                 detector_to_release = entry.detector
 
         if detector_to_release is not None:
-            try:
-                detector_to_release.release()
-            except Exception:
-                # Worker shutdown should not fail because a backend's
-                # optional release hook raises.
-                pass
+            # Wait for any in-flight inference before releasing the runtime.
+            with self._entry.inference_lock:
+                try:
+                    detector_to_release.release()
+                except Exception:
+                    # Worker shutdown should not fail because a backend's
+                    # optional release hook raises.
+                    pass
 
 
 def acquire_shared_detector(key: Hashable, factory: Callable[[], Any]) -> SharedDetectorLease:
