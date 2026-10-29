@@ -41,6 +41,7 @@ class PlateEnricher:
         self._min_confirmations = int(ocr_cfg.get("min_confirmations", 1))
         self._max_vote_history = int(ocr_cfg.get("max_vote_history", 30))
         self._validate_indian_plate = bool(ocr_cfg.get("validate_indian_plate", True))
+        self._unrecognized_after_frames = max(1, int(ocr_cfg.get("unrecognized_after_frames", 5)))
 
         self._tracker = PlateTracker(
             max_match_distance=float(tracking_cfg.get("max_match_distance_px", 90)),
@@ -111,16 +112,20 @@ class PlateEnricher:
             # so the frontend can show "No Recognition". If OCR later confirms
             # a number, publish a second event with the recognized plate.
             ocr_attempted = self._ocr is None or track.last_ocr_frame == frame_number
-            if not track.detection_event_published and ocr_attempted:
-                track.detection_event_published = True
-                if confirmed:
-                    track.published = True
-                    self._publish_queue.append(enriched_detection)
-                else:
-                    # Keep unreadable detections visible as their own events.
-                    self._publish_queue.append(enriched_detection)
-            elif confirmed and not track.published:
+            # Recognized plates are published immediately once accepted.
+            # Delay "No Recognition" until this same plate track has been
+            # observed for five frames, giving OCR several chances first.
+            if confirmed and not track.published:
                 track.published = True
+                track.detection_event_published = True
+                self._publish_queue.append(enriched_detection)
+            elif (
+                not confirmed
+                and not track.detection_event_published
+                and track.detection_observations >= self._unrecognized_after_frames
+                and ocr_attempted
+            ):
+                track.detection_event_published = True
                 self._publish_queue.append(enriched_detection)
         return enriched
 
