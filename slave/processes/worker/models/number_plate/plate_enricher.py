@@ -119,8 +119,10 @@ class PlateEnricher:
                     track.last_event_confirmed = True
                     self._publish_queue.append(enriched_detection)
             elif (
+                # Publish on the first OCR attempt, even when it returns no
+                # readable characters; this prevents short-lived plate tracks
+                # from disappearing from event history.
                 ocr_attempted
-                and track.detection_observations >= self._unrecognized_after_frames
                 and (
                     not track.detection_event_published
                     or track.last_event_plate != (visible_plate or "")
