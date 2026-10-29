@@ -61,6 +61,8 @@ class NpuPlateTrack:
         self.detection_conf = detection_conf
         self.age = 1
         self.missed = 0
+        self.last_ocr_frame = -1_000_000
+        self.published = False
         self.history: List[dict] = []
         self.stable_text = ""
         self.total_valid = 0
