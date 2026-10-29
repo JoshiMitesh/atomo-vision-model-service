@@ -13,6 +13,7 @@ never shared (CLAUDE.md SS20).
 from __future__ import annotations
 
 import cv2
+import time
 from dataclasses import replace
 from typing import List
 
@@ -49,6 +50,12 @@ class PlateEnricher:
         )
 
         self._publish_queue: List[Detection] = []
+        # Avoid repeating the same recognized plate in the Events feed when
+        # tracking briefly loses a moving vehicle and creates a new track.
+        self._published_plate_numbers: dict[str, float] = {}
+        self._plate_event_dedupe_seconds = max(
+            60.0, float(tracking_cfg.get("plate_event_dedupe_seconds", 1800))
+        )
         self._ocr = None
         if bool(ocr_cfg.get("enabled", True)):
             kwargs = {}
@@ -118,8 +125,26 @@ class PlateEnricher:
                     track.published = True
             elif confirmed and not track.published:
                 track.published = True
-                self._publish_queue.append(enriched_detection)
+                if not self._was_plate_published(track.current_text):
+                    self._publish_queue.append(enriched_detection)
         return enriched
+
+    def _was_plate_published(self, plate_number: str) -> bool:
+        normalized = "".join(ch for ch in plate_number.upper() if ch.isalnum())
+        if not normalized:
+            return False
+        now = time.monotonic()
+        cutoff = now - self._plate_event_dedupe_seconds
+        self._published_plate_numbers = {
+            plate: seen_at
+            for plate, seen_at in self._published_plate_numbers.items()
+            if seen_at >= cutoff
+        }
+        if normalized in self._published_plate_numbers:
+            log.debug("suppressing duplicate number-plate event for %s", normalized)
+            return True
+        self._published_plate_numbers[normalized] = now
+        return False
 
     def take_publishable(self) -> List[Detection]:
         queued = self._publish_queue
