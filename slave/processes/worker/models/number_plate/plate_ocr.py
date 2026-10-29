@@ -60,7 +60,26 @@ class PlateOcr:
             crop = gray_frame[max(0, y1 - py):min(h, y2 + py), max(0, x1 - px):min(w, x2 + px)]
             if crop.size == 0:
                 continue
-            for name, img in (("raw", crop), ("clean", enhance_plate(crop))):
+            # Small plates in wide CCTV frames can be only a few dozen
+            # pixels tall. Keep the original crop, add a clean Lanczos
+            # enlargement, and retain the black-hat-enhanced variant.
+            # This gives OCR another readable scale without changing the
+            # detector box or the track/event behavior.
+            target_h = 96
+            scale = max(1.0, target_h / crop.shape[0])
+            upscaled = cv2.resize(
+                crop,
+                None,
+                fx=scale,
+                fy=scale,
+                interpolation=cv2.INTER_LANCZOS4,
+            )
+            variants = (
+                ("raw", crop),
+                ("upscaled", upscaled),
+                ("clean", enhance_plate(crop)),
+            )
+            for name, img in variants:
                 text, score = self._run_ocr(img)
                 plate, ok = normalize_plate(text)
                 reads.append((plate, ok, score, text, name, pad))
