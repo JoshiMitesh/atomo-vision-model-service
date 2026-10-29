@@ -27,6 +27,9 @@ class PlateTrack:
     current_score: float = 0.0
     confirmation_count: int = 0
     published: bool = False
+    # An initial detection event is emitted after the first OCR attempt, even
+    # when OCR cannot read the plate. A later recognized result may emit an update event.
+    detection_event_published: bool = False
     history: List[Tuple[str, float]] = field(default_factory=list)
 
     # Capture-time state. PT reads the newest available frame, so processed
