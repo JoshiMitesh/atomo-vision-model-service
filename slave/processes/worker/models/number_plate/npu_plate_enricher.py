@@ -37,6 +37,7 @@ class NpuPlateEnricher:
 
         self._min_ocr_conf = float(cfg.get("min_ocr_conf", 0.45))
         self._publish_only_stable = bool(cfg.get("publish_only_stable", True))
+        self._unrecognized_after_frames = max(1, int(cfg.get("unrecognized_after_frames", 5)))
         self._ocr_interval_frames = max(1, int(cfg.get("interval_frames", 3)))
         self._publish_queue: List[Detection] = []
 
@@ -87,16 +88,19 @@ class NpuPlateEnricher:
             # An unreadable plate is still a real detection and is published
             # with a null plate_number. If later OCR becomes stable, publish
             # another event containing the recognized number.
-            if not track.detection_event_published and ocr_attempted:
-                track.detection_event_published = True
-                if publish:
-                    track.published = True
-                    self._publish_queue.append(enriched_detection)
-                else:
-                    # Keep unreadable detections visible as their own events.
-                    self._publish_queue.append(enriched_detection)
-            elif publish and not track.published:
+            # Publish a readable/stable result immediately. Only emit
+            # "No Recognition" after five observations of this same plate.
+            if publish and not track.published:
                 track.published = True
+                track.detection_event_published = True
+                self._publish_queue.append(enriched_detection)
+            elif (
+                not publish
+                and not track.detection_event_published
+                and track.age >= self._unrecognized_after_frames
+                and ocr_attempted
+            ):
+                track.detection_event_published = True
                 self._publish_queue.append(enriched_detection)
         return enriched
 
