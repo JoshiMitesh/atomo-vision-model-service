@@ -30,6 +30,7 @@ class PlateTrack:
     # An initial detection event is emitted after the first OCR attempt, even
     # when OCR cannot read the plate. A later recognized result may emit an update event.
     detection_event_published: bool = False
+    detection_observations: int = 1
     history: List[Tuple[str, float]] = field(default_factory=list)
 
     # Capture-time state. PT reads the newest available frame, so processed
@@ -156,6 +157,7 @@ class PlateTracker:
             track.last_seen_frame = frame_number
             track.last_seen_timestamp = timestamp
             track.missed = 0
+            track.detection_observations += 1
             matched_tracks.add(ti)
             matched_detections.add(di)
             result[di] = (detections[di], track)
