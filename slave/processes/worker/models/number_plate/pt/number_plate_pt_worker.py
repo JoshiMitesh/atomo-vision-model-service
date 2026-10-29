@@ -195,6 +195,10 @@ class NumberPlatePtWorker:
                 camera_status=self._frame_reader.get_status(),
                 latitude=self._job.latitude,
                 longitude=self._job.longitude,
+                # Always publish the true inference-frame dimensions with live
+                # boxes; the frontend must scale bboxes against this exact frame.
+                width=int(frame.image.shape[1]),
+                height=int(frame.image.shape[0]),
                 telemetry=group_detections(plate_detections, self._job, tracking_id=None),
             )
             self._detection_publisher.publish_live_detection(live_result, self._job.camera_id)
