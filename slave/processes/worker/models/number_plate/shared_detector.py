@@ -34,10 +34,13 @@ class SharedDetectorLease:
         self._lease_lock = threading.Lock()
 
     def detect(self, frame):
-        with self._lease_lock:
-            if self._released:
-                raise RuntimeError("detector lease has been released")
+        # Acquire the inference lock before checking lease state. This closes
+        # the race where release() could dispose the detector after the state
+        # check but before inference starts.
         with self._entry.inference_lock:
+            with self._lease_lock:
+                if self._released:
+                    raise RuntimeError("detector lease has been released")
             return self._entry.detector.detect(frame)
 
     def release(self) -> None:
