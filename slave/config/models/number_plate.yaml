@@ -18,7 +18,7 @@ listsize: 65          # num_classes + 64 DFL channels (confirmed from the compil
 thresholds:
   # Raised from an initial 0.35 -- live RTSP testing (alpr_rtsp.py) showed
   # false-positive plate detections at that level.
-  obj_thresh: 0.55
+  obj_thresh: 0.65
   nms_thresh: 0.45
 
 # Plate-box shape filter applied by the detector (pt and nb), ported
@@ -63,7 +63,7 @@ pt:
   # above is then unused). ultralytics = the number_plate.pt checkpoint.
   backend: open_image_models
   oim_model: yolo-v9-t-640-license-plate-end2end
-  oim_conf_thresh: 0.25   # anpr_night's value
+  oim_conf_thresh: 0.65   # anpr_night's value
   shape_filter: false     # anpr_night applies no box shape filter
 
 nb:
@@ -90,7 +90,7 @@ nb:
   # Cap on NPU inferences per second per job (alpr_npu.py's NPU_FPS = 12);
   # 0 disables the cap.
   target_fps: 12
-  obj_thresh: 0.45
+  obj_thresh: 0.65
   nms_thresh: 0.30
   candidate_gather_thresh: 0.18
   dfl_certainty_thresh: 0.18
