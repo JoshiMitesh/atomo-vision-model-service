@@ -74,13 +74,11 @@ class NpuPlateEnricher:
             publish = bool(best_text) and (stable if self._publish_only_stable else is_indian_plate(best_text))
 
             enriched_detection = replace(
-                replace(
-                    detection,
-                    extra={
+                detection,
+                extra={
                         "plate_number": best_text if publish else None,
                         "plate_confidence": best_conf if publish else None,
-                    },
-                )
+                },
             )
             enriched.append(enriched_detection)
             if publish and not track.published:
