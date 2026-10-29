@@ -105,7 +105,18 @@ class PlateEnricher:
                 },
             )
             enriched.append(enriched_detection)
-            if confirmed and not track.published:
+
+            # First try OCR before creating the event. If the first OCR attempt
+            # cannot read the plate, publish a detection with plate_number=null
+            # so the frontend can show "No Recognition". If OCR later confirms
+            # a number, publish a second event with the recognized plate.
+            ocr_attempted = self._ocr is None or track.last_ocr_frame == frame_number
+            if not track.detection_event_published and ocr_attempted:
+                track.detection_event_published = True
+                self._publish_queue.append(enriched_detection)
+                if confirmed:
+                    track.published = True
+            elif confirmed and not track.published:
                 track.published = True
                 self._publish_queue.append(enriched_detection)
         return enriched
