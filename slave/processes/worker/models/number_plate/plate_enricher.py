@@ -62,6 +62,7 @@ class PlateEnricher:
             self._ocr = (AwirosPlateOcr(
                 model_dir=ocr_cfg.get("model_dir", "slave/processes/worker/models/number_plate/awiros"),
                 device=ocr_cfg.get("device", "cpu"),
+                cpu_threads=int(ocr_cfg.get("cpu_threads", 2)),
             ) if ocr_cfg.get("engine") == "awiros_paddle" else PlateOcr(
                 model_name=ocr_cfg.get("model_name", "cct-s-v2-global-model"), **kwargs,
             ))
