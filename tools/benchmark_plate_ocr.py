@@ -78,6 +78,8 @@ def main() -> int:
                         help="FastPlateOCR model used for multi-variant pipeline (default: current S model)")
     parser.add_argument("--labels", type=Path,
                         help="optional CSV with columns image,plate for exact-match accuracy")
+    parser.add_argument("--predictions-out", type=Path, default=Path("/tmp/plate-benchmark-predictions.csv"),
+                        help="write per-image predictions for XS and current S pipeline (default: /tmp/plate-benchmark-predictions.csv)")
     parser.add_argument("--warmup", type=int, default=2,
                         help="warm-up runs per engine (default: 2)")
     parser.add_argument("--repeat", type=int, default=1,
@@ -152,6 +154,27 @@ def main() -> int:
         if awiros is not None:
             awiros.release()
 
+    # Save side-by-side predictions so the user can review disagreements without
+    # manually labeling every crop. These are predictions, not ground-truth labels.
+    xs_name = "FastPlateOCR XS - single pass"
+    s_name = f"FastPlateOCR {args.fast_model} - multi-variant pipeline"
+    args.predictions_out.parent.mkdir(parents=True, exist_ok=True)
+    with args.predictions_out.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["image", "xs_prediction", "current_s_prediction", "predictions_match", "verified_plate"])
+        for filename, *_ in samples:
+            xs_prediction = results.get(xs_name, {}).get(filename, "")
+            s_prediction = results.get(s_name, {}).get(filename, "")
+            writer.writerow([filename, xs_prediction, s_prediction,
+                             "yes" if xs_prediction and xs_prediction == s_prediction else "no",
+                             labels.get(filename, "")])
+    disagreements = sum(
+        results.get(xs_name, {}).get(filename, "") != results.get(s_name, {}).get(filename, "")
+        for filename, *_ in samples
+    )
+    print(f"\nSaved side-by-side predictions: {args.predictions_out}")
+    print(f"XS vs S prediction disagreements: {disagreements}/{len(samples)}")
+    print("Review these disagreements first; matching predictions are not guaranteed correct.")
     if labels:
         print("\nAccuracy caveat: exact match is meaningful only for correctly labeled images.")
     print("\nBenchmark complete. No production config or engine was changed.")
