@@ -28,6 +28,7 @@ class PlateEnricher:
         self._interval = int(ocr_cfg.get("interval_frames", 5))
         self._search_interval = int(ocr_cfg.get("search_interval_frames", 1))
         self._min_score = float(ocr_cfg.get("min_score", 0.45))
+        self._publish_confidence = float(ocr_cfg.get("publish_confidence", 0.95))
         self._min_confirmations = int(ocr_cfg.get("min_confirmations", 1))
         self._min_consensus_ratio = float(ocr_cfg.get("min_consensus_ratio", 0.60))
         self._min_hits = int(ocr_cfg.get("min_detection_hits", 3))
@@ -145,12 +146,12 @@ class PlateEnricher:
                 )
                 if plate:
                     track.record_candidate(plate, score)
-                accepted = bool(plate) and score > 0.90
+                accepted = bool(plate) and score > self._publish_confidence
                 format_ok = accepted and (not self._validate_indian_plate or valid)
                 if not format_ok:
                     log.debug(
-                        "Plate OCR not published: plate=%r confidence=%.1f%% required=>90%% format_ok=%s",
-                        plate, score * 100.0, format_ok,
+                        "Plate OCR not published: plate=%r confidence=%.1f%% required=>%.1f%% format_ok=%s",
+                        plate, score * 100.0, self._publish_confidence * 100.0, format_ok,
                     )
                     continue
                 track.record_ocr(plate, score, self._max_vote_history)
