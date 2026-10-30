@@ -67,7 +67,7 @@ def _ppocr(directory: Path):
 
 
 class AwirosPlateOcr:
-    def __init__(self, model_dir: str, device: str = "cpu"):
+    def __init__(self, model_dir: str, device: str = "cpu", cpu_threads: int = 2):
         import paddle
         from safetensors.numpy import load_file
 
@@ -81,6 +81,10 @@ class AwirosPlateOcr:
             paddle.set_device("gpu")
         else:
             paddle.set_device("cpu")
+            # Avoid excessive OpenMP/Paddle thread contention with the live
+            # detector and stream decoder. Keep this configurable per host.
+            if hasattr(paddle, "set_num_threads"):
+                paddle.set_num_threads(max(1, int(cpu_threads)))
         self._paddle = paddle
         self._model = build_model(copy.deepcopy(_ARCH))
         state = {key: paddle.to_tensor(value) for key, value in load_file(str(weights)).items()}
