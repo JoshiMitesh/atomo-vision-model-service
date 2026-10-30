@@ -139,9 +139,22 @@ class NumberPlatePtWorker:
         if plate_detections:
             annotated = draw_detections(frame.image, plate_detections)
         if readable_plates:
-            upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
-            if upload_info is not None:
-                object_key, url = upload_info
+            # Async OCR results may arrive on a frame where the detector no
+            # longer sees the plate. Never pass None/empty images to OpenCV;
+            # publish the recognition event even when no matching snapshot is
+            # available on this frame.
+            if annotated is not None and getattr(annotated, "size", 0) > 0:
+                upload_info = self._frame_uploader.upload_frame(
+                    self._worker_key, frame.frame_id, annotated
+                )
+                if upload_info is not None:
+                    object_key, url = upload_info
+            else:
+                self._log.warning(
+                    "Skipping plate-event snapshot: no annotated image available "
+                    "for frame_id=%s (OCR result arrived asynchronously)",
+                    frame.frame_id,
+                )
 
         width = height = None
         if object_key is not None:
