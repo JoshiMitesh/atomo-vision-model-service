@@ -132,6 +132,19 @@ class PlateEnricher:
                     track.last_event_plate = visible_plate or ""
                     track.last_event_confirmed = True
                     self._publish_queue.append(enriched_detection)
+            elif isinstance(self._ocr, AwirosPlateOcr) and ocr_attempted and visible_plate and (
+                not track.detection_event_published
+                or track.last_event_plate != visible_plate
+                or track.last_event_confirmed
+            ):
+                # Awiros may produce useful OCR candidates that never reach
+                # the strict confirmation threshold. Publish the candidate so
+                # the Events page can show it, then emit a confirmed update if
+                # later reads establish consensus for this same track.
+                track.detection_event_published = True
+                track.last_event_plate = visible_plate
+                track.last_event_confirmed = False
+                self._publish_queue.append(enriched_detection)
             elif unrecognized and not track.detection_event_published:
                 # A track that produced no readable OCR text must still be
                 # represented in event history after the configured number of
