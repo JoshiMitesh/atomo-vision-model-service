@@ -15,6 +15,7 @@ import numpy as np
 from slave.logging.logger import get_logger
 from slave.models.detection import Detection
 from slave.processes.worker.models.number_plate.plate_ocr import PlateOcr
+from slave.processes.worker.models.number_plate.awiros_ocr import AwirosPlateOcr
 from slave.processes.worker.models.number_plate.plate_tracker import PlateTracker
 
 log = get_logger(__name__)
@@ -29,6 +30,8 @@ class PlateEnricher:
         self._search_interval = int(ocr_cfg.get("search_interval_frames", 1))
         self._min_score = float(ocr_cfg.get("min_score", 0.45))
         self._min_confirmations = int(ocr_cfg.get("min_confirmations", 1))
+        self._min_consensus_ratio = float(ocr_cfg.get("min_consensus_ratio", 0.60))
+        self._min_hits = int(ocr_cfg.get("min_detection_hits", 3))
         self._max_vote_history = int(ocr_cfg.get("max_vote_history", 30))
         self._validate_indian_plate = bool(ocr_cfg.get("validate_indian_plate", True))
         self._unrecognized_after_frames = max(1, int(ocr_cfg.get("unrecognized_after_frames", 3)))
@@ -48,10 +51,12 @@ class PlateEnricher:
                     tuple(p) if isinstance(p, (list, tuple)) else p
                     for p in ocr_cfg["pad_ratios"]
                 )
-            self._ocr = PlateOcr(
-                model_name=ocr_cfg.get("model_name", "cct-s-v2-global-model"),
-                **kwargs,
-            )
+            self._ocr = (AwirosPlateOcr(
+                model_dir=ocr_cfg.get("model_dir", "slave/processes/worker/models/number_plate/awiros"),
+                device=ocr_cfg.get("device", "cpu"),
+            ) if ocr_cfg.get("engine") == "awiros_paddle" else PlateOcr(
+                model_name=ocr_cfg.get("model_name", "cct-s-v2-global-model"), **kwargs,
+            ))
 
     def enrich(
         self,
@@ -67,11 +72,11 @@ class PlateEnricher:
         )
         enriched: List[Detection] = []
         self._publish_queue = []
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if self._ocr is not None and pairs else None
+        gray = (frame if isinstance(self._ocr, AwirosPlateOcr) else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)) if self._ocr is not None and pairs else None
 
         for detection, track in pairs:
             interval = self._interval if track.confirmation_count else self._search_interval
-            if self._ocr is not None and (frame_number - track.last_ocr_frame) >= interval:
+            if self._ocr is not None and track.detection_observations >= self._min_hits and (frame_number - track.last_ocr_frame) >= interval:
                 track.last_ocr_frame = frame_number
                 plate, score, valid, _ = self._ocr.read_plate(gray, detection.bbox)
                 # Preserve the latest non-empty OCR candidate even when its
@@ -91,6 +96,7 @@ class PlateEnricher:
             confirmed = bool(
                 track.current_text
                 and track.confirmation_count >= self._min_confirmations
+                and track.confirmation_count / max(1, len(track.history)) >= self._min_consensus_ratio
             )
             visible_plate = track.current_text if confirmed else (track.candidate_text or track.current_text)
             visible_score = track.current_score if confirmed else (
@@ -118,7 +124,7 @@ class PlateEnricher:
                     track.last_event_plate = visible_plate or ""
                     track.last_event_confirmed = True
                     self._publish_queue.append(enriched_detection)
-            elif (
+            elif not isinstance(self._ocr, AwirosPlateOcr) and (
                 # Publish on the first OCR attempt, even when it returns no
                 # readable characters; this prevents short-lived plate tracks
                 # from disappearing from event history.
