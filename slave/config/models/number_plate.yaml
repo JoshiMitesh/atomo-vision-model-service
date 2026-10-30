@@ -113,11 +113,11 @@ ocr:
   engine: awiros_paddle
   model_dir: slave/processes/worker/models/number_plate/awiros
   device: cpu
-  min_detection_hits: 3
+  min_detection_hits: 1
   min_consensus_ratio: 0.60
   model_name: cct-s-v2-global-model
-  interval_frames: 1          # Recheck confirmed tracks every fifth processed frame
-  search_interval_frames: 1   # Search unconfirmed tracks without running OCR on every frame
+  interval_frames: 10         # Retry OCR every 10 processed frames to protect live detection FPS
+  search_interval_frames: 10  # First OCR is immediate; retry unconfirmed tracks every 10 frames
   min_score: 0.80              # anpr_night has no score gate; plate_format.py does the filtering
   pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
   # Perspective-rectify output size -- npu_ocr (the .nb/.so path) only.
