@@ -20,7 +20,7 @@ class UltralyticsRuntime:
         self._device = None if device == "auto" else device
         self._half = half
 
-    def infer(self, frame: np.ndarray, conf: float, iou: float) -> Any:
+    def infer(self, frame: np.ndarray, conf: float, iou: float, imgsz: int | None = None) -> Any:
         predict_kwargs = dict(
             source=frame,
             conf=conf,
@@ -28,6 +28,8 @@ class UltralyticsRuntime:
             device=self._device,
             verbose=False,
         )
+        if imgsz is not None:
+            predict_kwargs["imgsz"] = imgsz
         # Only pass `half` when actually requesting it — some Ultralytics
         # versions emit a "deprecated, use quantize" warning on *every*
         # predict() call whenever this kwarg is present at all, even
