@@ -102,6 +102,10 @@ class PlateEnricher:
             visible_score = track.current_score if confirmed else (
                 track.candidate_score if track.candidate_text else track.current_score
             )
+            unrecognized = (
+                not visible_plate
+                and track.detection_observations >= self._unrecognized_after_frames
+            )
             enriched_detection = replace(
                 detection,
                 extra={
@@ -109,7 +113,11 @@ class PlateEnricher:
                     "plate_number": visible_plate or None,
                     "plate_confidence": visible_score if visible_plate else None,
                     "plate_confirmed": bool(confirmed),
-                    "plate_status": "confirmed" if confirmed else "not_confirmed",
+                    "plate_status": (
+                        "confirmed" if confirmed
+                        else "unrecognized" if unrecognized
+                        else "not_confirmed"
+                    ),
                 },
             )
             enriched.append(enriched_detection)
@@ -124,6 +132,15 @@ class PlateEnricher:
                     track.last_event_plate = visible_plate or ""
                     track.last_event_confirmed = True
                     self._publish_queue.append(enriched_detection)
+            elif unrecognized and not track.detection_event_published:
+                # A track that produced no readable OCR text must still be
+                # represented in event history after the configured number of
+                # observations. Keep plate_number null and mark the status so
+                # consumers can distinguish this from a recognized plate.
+                track.detection_event_published = True
+                track.last_event_plate = ""
+                track.last_event_confirmed = False
+                self._publish_queue.append(enriched_detection)
             elif not isinstance(self._ocr, AwirosPlateOcr) and (
                 # Publish on the first OCR attempt, even when it returns no
                 # readable characters; this prevents short-lived plate tracks
