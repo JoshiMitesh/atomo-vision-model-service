@@ -18,7 +18,7 @@ listsize: 65          # num_classes + 64 DFL channels (confirmed from the compil
 thresholds:
   # Raised from an initial 0.35 -- live RTSP testing (alpr_rtsp.py) showed
   # false-positive plate detections at that level.
-  obj_thresh: 0.65
+  obj_thresh: 0.68
   nms_thresh: 0.45
 
 # Plate-box shape filter applied by the detector (pt and nb), ported
@@ -48,11 +48,11 @@ input:
 
 pt:
   filters:
-    min_plate_width_px: 45
-    min_plate_height_px: 15
-    min_plate_aspect: 2.0
-    max_plate_aspect: 8.0
-    min_plate_area_ratio: 0.00005
+    min_plate_width_px: 25
+    min_plate_height_px: 10
+    min_plate_aspect: 1.15
+    max_plate_aspect: 7.0
+    min_plate_area_ratio: 0.0
   # Resolved flat against processes/worker/models/number_plate/ (same
   # convention as person.pt/fire.pt).
   model_file: number_plate.pt
@@ -61,10 +61,11 @@ pt:
   # Plate detector backend. open_image_models = anpr_night's proven
   # YOLOv9-t (ONNX, no torch; auto-downloads on first use; model_file
   # above is then unused). ultralytics = the number_plate.pt checkpoint.
-  backend: open_image_models
+  backend: ultralytics
   oim_model: yolo-v9-t-640-license-plate-end2end
   oim_conf_thresh: 0.65   # anpr_night's value
-  shape_filter: false     # anpr_night applies no box shape filter
+  shape_filter: true
+  image_size: 960     # anpr_night applies no box shape filter
 
 nb:
   # Amlogic A311D NPU runtime options (see runtimes/npu/nb_runtime.py).
@@ -109,10 +110,15 @@ so:
 # after its number is read (unread boxes are never published).
 ocr:
   enabled: true
-  model_name: cct-s-v2-global-model   # confirmed working in anpr_night/anpr.py
-  interval_frames: 5          # Recheck confirmed tracks every fifth processed frame
-  search_interval_frames: 3   # Search unconfirmed tracks without running OCR on every frame
-  min_score: 0.0              # anpr_night has no score gate; plate_format.py does the filtering
+  engine: awiros_paddle
+  model_dir: slave/processes/worker/models/number_plate/awiros
+  device: cpu
+  min_detection_hits: 3
+  min_consensus_ratio: 0.60
+  model_name: cct-s-v2-global-model
+  interval_frames: 1          # Recheck confirmed tracks every fifth processed frame
+  search_interval_frames: 1   # Search unconfirmed tracks without running OCR on every frame
+  min_score: 0.80              # anpr_night has no score gate; plate_format.py does the filtering
   pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
   # Perspective-rectify output size -- npu_ocr (the .nb/.so path) only.
   rectified_width_px: 320
@@ -122,7 +128,7 @@ ocr:
   # same plate string (2 stops a single wrong read being published).
   min_confirmations: 2
   unrecognized_after_frames: 3  # Publish No Recognition after three observations of the same track
-  validate_indian_plate: true
+  validate_indian_plate: false
 # Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
 # ported from the board-verified alpr_npu.py (npu_plate_enricher.py).
 # The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
