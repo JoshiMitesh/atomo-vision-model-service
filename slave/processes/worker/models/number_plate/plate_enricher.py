@@ -40,9 +40,9 @@ class PlateEnricher:
             max_track_gap_seconds=float(tracking_cfg.get("max_track_gap_seconds", 1.5)),
         )
 
-        self._publish_queue: List[Detection] = []
+        self._publish_queue: List[tuple[Detection, np.ndarray, int]] = []
         self._publish_lock = threading.Lock()
-        self._ocr_queue: queue.Queue = queue.Queue(maxsize=2)
+        self._ocr_queue: queue.Queue = queue.Queue(maxsize=16)
         self._ocr_stop = threading.Event()
         self._ocr_thread = None
         self._ocr = None
@@ -80,22 +80,15 @@ class PlateEnricher:
         for detection, track in pairs:
             interval = self._interval if track.confirmation_count else self._search_interval
             if self._ocr is not None and (frame_number - track.last_ocr_frame) >= interval:
-                track.last_ocr_frame = frame_number
-                # OCR is isolated from the detector loop. Keep only the newest
-                # pending crops so CPU-heavy recognition cannot build a backlog.
-                item = (gray.copy(), detection.bbox, track, detection)
+                # Keep the exact source image for the event snapshot. A larger
+                # bounded queue avoids dropping most plate reads during OCR bursts.
+                item = (gray.copy(), detection.bbox, track, detection, frame.copy(), frame_number)
                 try:
                     self._ocr_queue.put_nowait(item)
+                    track.last_ocr_frame = frame_number
                 except queue.Full:
-                    try:
-                        self._ocr_queue.get_nowait()
-                        self._ocr_queue.task_done()
-                    except queue.Empty:
-                        pass
-                    try:
-                        self._ocr_queue.put_nowait(item)
-                    except queue.Full:
-                        pass
+                    # Do not mark this frame as processed; the next frame can retry.
+                    log.warning("Plate OCR queue full; retrying track_id=%s", track.track_id)
 
             confirmed = bool(
                 track.current_text
@@ -122,7 +115,7 @@ class PlateEnricher:
     def _ocr_loop(self) -> None:
         while not self._ocr_stop.is_set():
             try:
-                frame, bbox, track, detection = self._ocr_queue.get(timeout=0.2)
+                frame, bbox, track, detection, source_image, source_frame_number = self._ocr_queue.get(timeout=0.2)
             except queue.Empty:
                 continue
             try:
@@ -153,13 +146,13 @@ class PlateEnricher:
                     "plate_status": "confirmed",
                 })
                 with self._publish_lock:
-                    self._publish_queue.append(replace(detection, extra=extra))
+                    self._publish_queue.append((replace(detection, extra=extra), source_image, source_frame_number))
             except Exception:
                 log.exception("Background plate OCR failed for track_id=%s", track.track_id)
             finally:
                 self._ocr_queue.task_done()
 
-    def take_publishable(self) -> List[Detection]:
+    def take_publishable(self) -> List[tuple[Detection, np.ndarray, int]]:
         with self._publish_lock:
             queued = self._publish_queue
             self._publish_queue = []
