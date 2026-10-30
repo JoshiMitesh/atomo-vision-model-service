@@ -11,9 +11,16 @@ import argparse
 import csv
 import statistics
 import time
+import sys
 from pathlib import Path
 
 import cv2
+
+# Allow both "python tools/benchmark_plate_ocr.py" and module-style execution
+# from the repository root, where the "slave" package lives.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from slave.processes.worker.models.number_plate.awiros_ocr import AwirosPlateOcr
 from slave.processes.worker.models.number_plate.plate_ocr import PlateOcr
