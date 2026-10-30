@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 
 import cv2
-import numpy as np
 
 from slave.processes.worker.models.number_plate.awiros_ocr import AwirosPlateOcr
 from slave.processes.worker.models.number_plate.plate_ocr import PlateOcr
@@ -68,8 +67,8 @@ def main() -> int:
                         help="directory of plate-crop images (one plate per image)")
     parser.add_argument("--model-dir", default="slave/processes/worker/models/number_plate/awiros",
                         help="Awiros weights/dictionary directory")
-    parser.add_argument("--fast-model", default="cct-xs-v2-global-model",
-                        help="FastPlateOCR model name (default: smaller XS global model)")
+    parser.add_argument("--fast-model", default="cct-s-v2-global-model",
+                        help="FastPlateOCR model used for multi-variant pipeline (default: current S model)")
     parser.add_argument("--labels", type=Path,
                         help="optional CSV with columns image,plate for exact-match accuracy")
     parser.add_argument("--warmup", type=int, default=2,
@@ -103,7 +102,8 @@ def main() -> int:
     print("Run this while the machine is otherwise idle for comparable timings.")
     print("The first model load/download is excluded from per-image latency.")
 
-    fast = PlateOcr(args.fast_model, pad_ratios=(0.10,))
+    fast = PlateOcr(args.fast_model, pad_ratios=(0.10, 0.20))
+    fast_xs = PlateOcr("cct-xs-v2-global-model", pad_ratios=(0.10,))
     awiros = None
     if not args.skip_awiros:
         awiros = AwirosPlateOcr(str(args.model_dir), device="cpu",
@@ -133,14 +133,15 @@ def main() -> int:
 
     try:
         run_case("FastPlateOCR XS - single pass",
-                 lambda s: fast._run_ocr(s[2])[0], args.warmup)
-        run_case("FastPlateOCR XS - production multi-variant pipeline",
+                 lambda s: fast_xs._run_ocr(s[2])[0], args.warmup)
+        run_case(f"FastPlateOCR {args.fast_model} - multi-variant pipeline",
                  lambda s: fast.read_plate(s[2], s[3])[0], args.warmup)
         if awiros is not None:
             run_case("Awiros PaddleOCR - current pipeline",
                      lambda s: awiros.read_plate(s[1], s[3])[0], args.warmup)
     finally:
         fast.release()
+        fast_xs.release()
         if awiros is not None:
             awiros.release()
 
