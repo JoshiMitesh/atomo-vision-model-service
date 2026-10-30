@@ -1,13 +1,7 @@
-"""Turns a frame's raw plate Detection list into the same boxes
-carrying an OCR-read plate number.
+"""Turns a frame's raw plate Detection list into the same boxes carrying OCR results.
 
-Per-job state (its own PlateTracker + fast-plate-ocr recognizer
-instance, see plate_ocr.py) that the pt/nb worker calls after its own
-detector's detect() --
-detection/decode/NMS stay in the detector per CLAUDE.md SS8; this is
-the plate-specific post-processing that needs cross-frame memory,
-which a stateless detector call can't hold. One PlateEnricher per job,
-never shared (CLAUDE.md SS20).
+Per-job state (its own PlateTracker + OCR recognizer) lets tentative reads
+improve over time without treating an unconfirmed string as a confirmed plate.
 """
 
 from __future__ import annotations
@@ -32,10 +26,6 @@ class PlateEnricher:
         tracking_cfg = model_config.get("tracking", {})
 
         self._interval = int(ocr_cfg.get("interval_frames", 5))
-        # A plate's number is often readable in only one or two frames of
-        # its pass (the rest are blurred/angled/clipped), so while a track
-        # has no accepted read yet, OCR runs this often instead of
-        # `interval_frames`.
         self._search_interval = int(ocr_cfg.get("search_interval_frames", 1))
         self._min_score = float(ocr_cfg.get("min_score", 0.45))
         self._min_confirmations = int(ocr_cfg.get("min_confirmations", 1))
@@ -53,8 +43,11 @@ class PlateEnricher:
         self._ocr = None
         if bool(ocr_cfg.get("enabled", True)):
             kwargs = {}
-            if ocr_cfg.get("pad_ratios"):  # [[pad_x, pad_y], ...]; omitted -> plate_ocr.PAD_RATIOS
-                kwargs["pad_ratios"] = tuple(tuple(p) if isinstance(p, (list, tuple)) else p for p in ocr_cfg["pad_ratios"])
+            if ocr_cfg.get("pad_ratios"):
+                kwargs["pad_ratios"] = tuple(
+                    tuple(p) if isinstance(p, (list, tuple)) else p
+                    for p in ocr_cfg["pad_ratios"]
+                )
             self._ocr = PlateOcr(
                 model_name=ocr_cfg.get("model_name", "cct-s-v2-global-model"),
                 **kwargs,
@@ -81,53 +74,68 @@ class PlateEnricher:
             if self._ocr is not None and (frame_number - track.last_ocr_frame) >= interval:
                 track.last_ocr_frame = frame_number
                 plate, score, valid, _ = self._ocr.read_plate(gray, detection.bbox)
+                # Preserve the latest non-empty OCR candidate even when its
+                # confidence/format is insufficient for confirmation.
+                if plate:
+                    track.record_candidate(plate, score)
                 accepted = bool(plate) and score >= self._min_score
                 format_ok = accepted and (not self._validate_indian_plate or valid)
                 if accepted and format_ok:
                     track.record_ocr(plate, score, self._max_vote_history)
                 else:
                     log.debug(
-                        "track %s: OCR rejected (plate=%r score=%.3f min_score=%.2f format_ok=%s)",
+                        "track %s: OCR not confirmed (plate=%r score=%.3f min_score=%.2f format_ok=%s)",
                         track.track_id, plate, score, self._min_score, format_ok,
                     )
 
-            # Don't publish a plate_number until enough accepted OCR
-            # reads have been seen for this track -- a single-frame OCR
-            # fluke stays null instead of leaking into the detection
-            # output. current_text is a score-weighted per-character
-            # consensus across every accepted read so far (see
-            # plate_tracker.py's _consensus()).
-            confirmed = track.current_text and track.confirmation_count >= self._min_confirmations
+            confirmed = bool(
+                track.current_text
+                and track.confirmation_count >= self._min_confirmations
+            )
+            visible_plate = track.current_text if confirmed else (track.candidate_text or track.current_text)
+            visible_score = track.current_score if confirmed else (
+                track.candidate_score if track.candidate_text else track.current_score
+            )
             enriched_detection = replace(
                 detection,
                 extra={
                     "plate_track_id": track.track_id,
-                    "plate_number": track.current_text if confirmed else None,
-                    "plate_confidence": track.current_score if confirmed else None,
+                    "plate_number": visible_plate or None,
+                    "plate_confidence": visible_score if visible_plate else None,
+                    "plate_confirmed": bool(confirmed),
+                    "plate_status": "confirmed" if confirmed else "not_confirmed",
                 },
             )
             enriched.append(enriched_detection)
 
-            # First try OCR before creating the event. If the first OCR attempt
-            # cannot read the plate, publish a detection with plate_number=null
-            # so the frontend can show "No Recognition". If OCR later confirms
-            # a number, publish a second event with the recognized plate.
             ocr_attempted = self._ocr is None or track.last_ocr_frame == frame_number
-            # Recognized plates are published immediately once accepted.
-            # Delay "No Recognition" until this same plate track has been
-            # observed for three frames, giving OCR a few chances first.
-            if confirmed and not track.published:
-                track.published = True
-                track.detection_event_published = True
-                self._publish_queue.append(enriched_detection)
+            if confirmed:
+                # Send one confirmed update even if an earlier unconfirmed
+                # event was already created for this physical track.
+                if not track.published:
+                    track.published = True
+                    track.detection_event_published = True
+                    track.last_event_plate = visible_plate or ""
+                    track.last_event_confirmed = True
+                    self._publish_queue.append(enriched_detection)
             elif (
-                not confirmed
-                and not track.detection_event_published
-                and track.detection_observations >= self._unrecognized_after_frames
-                and ocr_attempted
+                # Publish on the first OCR attempt, even when it returns no
+                # readable characters; this prevents short-lived plate tracks
+                # from disappearing from event history.
+                ocr_attempted
+                and (
+                    not track.detection_event_published
+                    or track.last_event_plate != (visible_plate or "")
+                    or track.last_event_confirmed
+                )
             ):
+                # Re-emit only when the best tentative candidate changes;
+                # Master upserts it into this track's existing event.
                 track.detection_event_published = True
+                track.last_event_plate = visible_plate or ""
+                track.last_event_confirmed = False
                 self._publish_queue.append(enriched_detection)
+
         return enriched
 
     def take_publishable(self) -> List[Detection]:
