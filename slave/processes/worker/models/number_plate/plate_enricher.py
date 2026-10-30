@@ -75,6 +75,7 @@ class PlateEnricher:
         gray = (frame if isinstance(self._ocr, AwirosPlateOcr) else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)) if self._ocr is not None and pairs else None
 
         for detection, track in pairs:
+            ocr_recognized = False
             interval = self._interval if track.confirmation_count else self._search_interval
             if self._ocr is not None and track.detection_observations >= self._min_hits and (frame_number - track.last_ocr_frame) >= interval:
                 track.last_ocr_frame = frame_number
@@ -85,7 +86,8 @@ class PlateEnricher:
                     track.record_candidate(plate, score)
                 accepted = bool(plate) and score >= self._min_score
                 format_ok = accepted and (not self._validate_indian_plate or valid)
-                if accepted and format_ok:
+                ocr_recognized = bool(plate) and format_ok
+                if ocr_recognized:
                     track.record_ocr(plate, score, self._max_vote_history)
                 else:
                     log.debug(
@@ -122,54 +124,15 @@ class PlateEnricher:
             )
             enriched.append(enriched_detection)
 
-            ocr_attempted = self._ocr is None or track.last_ocr_frame == frame_number
-            if confirmed:
-                # Send one confirmed update even if an earlier unconfirmed
-                # event was already created for this physical track.
-                if not track.published:
-                    track.published = True
-                    track.detection_event_published = True
-                    track.last_event_plate = visible_plate or ""
-                    track.last_event_confirmed = True
-                    self._publish_queue.append(enriched_detection)
-            elif isinstance(self._ocr, AwirosPlateOcr) and ocr_attempted and visible_plate and (
+            # Publish as soon as this frame produces an accepted OCR read.
+            # Do not wait for confirmation counts or consensus ratios.
+            if ocr_recognized and visible_plate and (
                 not track.detection_event_published
                 or track.last_event_plate != visible_plate
-                or track.last_event_confirmed
             ):
-                # Awiros may produce useful OCR candidates that never reach
-                # the strict confirmation threshold. Publish the candidate so
-                # the Events page can show it, then emit a confirmed update if
-                # later reads establish consensus for this same track.
                 track.detection_event_published = True
                 track.last_event_plate = visible_plate
-                track.last_event_confirmed = False
-                self._publish_queue.append(enriched_detection)
-            elif unrecognized and not track.detection_event_published:
-                # A track that produced no readable OCR text must still be
-                # represented in event history after the configured number of
-                # observations. Keep plate_number null and mark the status so
-                # consumers can distinguish this from a recognized plate.
-                track.detection_event_published = True
-                track.last_event_plate = ""
-                track.last_event_confirmed = False
-                self._publish_queue.append(enriched_detection)
-            elif not isinstance(self._ocr, AwirosPlateOcr) and (
-                # Publish on the first OCR attempt, even when it returns no
-                # readable characters; this prevents short-lived plate tracks
-                # from disappearing from event history.
-                ocr_attempted
-                and (
-                    not track.detection_event_published
-                    or track.last_event_plate != (visible_plate or "")
-                    or track.last_event_confirmed
-                )
-            ):
-                # Re-emit only when the best tentative candidate changes;
-                # Master upserts it into this track's existing event.
-                track.detection_event_published = True
-                track.last_event_plate = visible_plate or ""
-                track.last_event_confirmed = False
+                track.last_event_confirmed = bool(confirmed)
                 self._publish_queue.append(enriched_detection)
 
         return enriched
