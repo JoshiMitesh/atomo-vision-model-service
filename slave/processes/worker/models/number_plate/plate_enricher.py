@@ -80,18 +80,21 @@ class PlateEnricher:
                 # confidence/format is insufficient for confirmation.
                 if plate:
                     track.record_candidate(plate, score)
-                # Do not wait for a confidence threshold or confirmation.
-                # Any non-empty OCR result is immediately eligible for Events;
-                # format validation remains optional via configuration.
-                accepted = bool(plate)
+                # Publish immediately on this read, but only when OCR confidence
+                # is strictly above 90%. No multi-frame confirmation is required.
+                accepted = bool(plate) and score > 0.90
                 format_ok = accepted and (not self._validate_indian_plate or valid)
                 ocr_recognized = bool(plate) and format_ok
                 if ocr_recognized:
                     track.record_ocr(plate, score, self._max_vote_history)
+                    log.info(
+                        "Plate recognized: plate=%s confidence=%.1f%% track_id=%s",
+                        plate, score * 100.0, track.track_id,
+                    )
                 else:
                     log.debug(
-                        "track %s: OCR not confirmed (plate=%r score=%.3f min_score=%.2f format_ok=%s)",
-                        track.track_id, plate, score, self._min_score, format_ok,
+                        "Plate OCR not published: plate=%r confidence=%.1f%% required=>90%% format_ok=%s",
+                        plate, score * 100.0, format_ok,
                     )
 
             confirmed = bool(
