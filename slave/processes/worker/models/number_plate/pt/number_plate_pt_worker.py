@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -81,8 +80,6 @@ class NumberPlatePtWorker:
         self._thread = threading.Thread(
             target=self._run, name=f"number-plate-pt-{worker_key}", daemon=True
         )
-        self._speed_window_start = time.monotonic()
-        self._speed_window_frames = 0
 
     def start(self) -> None:
         self._frame_reader.start()
@@ -206,23 +203,6 @@ class NumberPlatePtWorker:
         if plate_detections:
             self._video_manager.feed_frame(annotated)
 
-        # PT deliberately does not sleep to a fixed FPS. The reader keeps
-        # only the newest frame, so inference stays real-time instead of
-        # building a stale queue. Log both rates to verify live behaviour.
-        self._speed_window_frames += 1
-        elapsed = time.monotonic() - self._speed_window_start
-        if elapsed >= 2.0:
-            processing_fps = self._speed_window_frames / elapsed
-            capture_fps = self._frame_reader.get_capture_fps()
-            source_lag = max(0.0, time.time() - float(frame.timestamp))
-            self._log.info(
-                "PT speed: capture_fps=%.1f processing_fps=%.1f source_lag=%.3fs latest_frame=true",
-                capture_fps,
-                processing_fps,
-                source_lag,
-            )
-            self._speed_window_frames = 0
-            self._speed_window_start = time.monotonic()
 
     def _cleanup(self) -> None:
         # stop() and _run()'s finally block may both request cleanup.
