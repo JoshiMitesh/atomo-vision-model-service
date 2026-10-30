@@ -1,8 +1,4 @@
-"""Turns a frame's raw plate Detection list into the same boxes carrying OCR results.
-
-Per-job state (its own PlateTracker + OCR recognizer) lets tentative reads
-improve over time without treating an unconfirmed string as a confirmed plate.
-"""
+"""Run OCR on the first detected plate crop and publish recognized reads immediately."""
 
 from __future__ import annotations
 
@@ -77,14 +73,17 @@ class PlateEnricher:
         for detection, track in pairs:
             ocr_recognized = False
             interval = self._interval if track.confirmation_count else self._search_interval
-            if self._ocr is not None and track.detection_observations >= self._min_hits and (frame_number - track.last_ocr_frame) >= interval:
+            if self._ocr is not None and (frame_number - track.last_ocr_frame) >= interval:
                 track.last_ocr_frame = frame_number
                 plate, score, valid, _ = self._ocr.read_plate(gray, detection.bbox)
                 # Preserve the latest non-empty OCR candidate even when its
                 # confidence/format is insufficient for confirmation.
                 if plate:
                     track.record_candidate(plate, score)
-                accepted = bool(plate) and score >= self._min_score
+                # Do not wait for a confidence threshold or confirmation.
+                # Any non-empty OCR result is immediately eligible for Events;
+                # format validation remains optional via configuration.
+                accepted = bool(plate)
                 format_ok = accepted and (not self._validate_indian_plate or valid)
                 ocr_recognized = bool(plate) and format_ok
                 if ocr_recognized:
