@@ -110,12 +110,12 @@ so:
 # after its number is read (unread boxes are never published).
 ocr:
   enabled: true
-  engine: awiros_paddle
-  model_dir: slave/processes/worker/models/number_plate/awiros
+  engine: ppocr_v6_tiny
   device: cpu
   min_detection_hits: 1
   min_consensus_ratio: 0.60
-  model_name: cct-s-v2-global-model
+  cpu_threads: 2
+  publish_confidence: 0.95
   interval_frames: 10         # Retry OCR every 10 processed frames to protect live detection FPS
   search_interval_frames: 10  # First OCR is immediate; retry unconfirmed tracks every 10 frames
   min_score: 0.80              # anpr_night has no score gate; plate_format.py does the filtering
