@@ -13,7 +13,7 @@ import numpy as np
 
 from slave.logging.logger import get_logger
 from slave.models.detection import Detection
-from slave.processes.worker.models.number_plate.ppocr_v6_tiny import PpOcrV6Tiny
+from slave.processes.worker.models.number_plate.ppocr_v6_tiny import PpOcrV6Medium
 from slave.processes.worker.models.number_plate.plate_tracker import PlateTracker
 
 log = get_logger(__name__)
@@ -52,7 +52,7 @@ class PlateEnricher:
         self._ocr_thread = None
         self._ocr = None
         if bool(ocr_cfg.get("enabled", True)):
-            self._ocr = PpOcrV6Tiny(cpu_threads=int(ocr_cfg.get("cpu_threads", 2)))
+            self._ocr = PpOcrV6Medium(cpu_threads=int(ocr_cfg.get("cpu_threads", 2)))
             self._ocr_thread = threading.Thread(target=self._ocr_loop, name="plate-ocr", daemon=True)
             self._ocr_thread.start()
 
