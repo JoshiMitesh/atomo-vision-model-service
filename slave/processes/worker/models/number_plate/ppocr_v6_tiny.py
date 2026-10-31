@@ -31,15 +31,34 @@ class PpOcrV6Tiny:
         crop = frame[y1:y2, x1:x2]
         if crop.size == 0:
             return "", 0.0, False, []
-        if crop.ndim == 2:
-            crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
-        outputs = self._model.predict(input=crop, batch_size=1)
+        # Upscale small/night crops and improve local contrast without
+        # aggressive thresholding that can erase thin plate characters.
+        ch, cw = crop.shape[:2]
+        if ch < 48:
+            target_w = max(cw, int(round(cw * (48.0 / max(1, ch)))))
+            crop = cv2.resize(crop, (target_w, 48), interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = cv2.cvtColor(clahe.apply(gray), cv2.COLOR_GRAY2BGR)
+
+        # Retry the original crop only when enhancement is not confident.
+        outputs = self._model.predict(input=enhanced, batch_size=1)
         for output in outputs:
             data = output.json
             if isinstance(data, dict) and "res" in data:
                 data = data["res"]
             raw = str(data.get("rec_text", "") or "").strip().upper()
             score = float(data.get("rec_score", 0.0) or 0.0)
+            if score < 0.95:
+                fallback_outputs = self._model.predict(input=crop, batch_size=1)
+                for fallback in fallback_outputs:
+                    fallback_data = fallback.json
+                    if isinstance(fallback_data, dict) and "res" in fallback_data:
+                        fallback_data = fallback_data["res"]
+                    fallback_raw = str(fallback_data.get("rec_text", "") or "").strip().upper()
+                    fallback_score = float(fallback_data.get("rec_score", 0.0) or 0.0)
+                    if fallback_score > score:
+                        raw, score = fallback_raw, fallback_score
             plate, valid = normalize_plate(raw)
             return plate, score, valid, [(plate, valid, score, raw, "ppocr_v6_tiny", 0.0)]
         return "", 0.0, False, []
