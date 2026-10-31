@@ -110,7 +110,7 @@ so:
 # after its number is read (unread boxes are never published).
 ocr:
   enabled: true
-  engine: ppocr_v6_tiny
+  engine: ppocr_v6_medium
   device: cpu
   min_detection_hits: 1
   min_consensus_ratio: 0.60
@@ -134,12 +134,12 @@ ocr:
 # The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
 npu_ocr:
   enabled: true
-  model_name: cct-s-v2-global-model
+  model_name: PP-OCRv6_medium_rec
   # Unused now: fast_plate_ocr (npu_plate_ocr.py) always runs on ONNX
   # Runtime internally -- kept only for backward config compatibility.
   # If OCR fails to initialise the job still runs detection-only.
   engine: onnxruntime
-  min_ocr_conf: 0.45           # raw OCR reads below this are ignored
+  min_ocr_conf: 0.90           # raw OCR reads below this are ignored
   interval_frames: 3           # bound OCR CPU per camera while preserving repeated evidence
   track_iou_threshold: 0.20    # detection<->track match (IoU)
   track_max_missed: 18         # frames a track survives without a detection
