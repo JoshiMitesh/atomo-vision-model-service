@@ -13,8 +13,7 @@ import numpy as np
 
 from slave.logging.logger import get_logger
 from slave.models.detection import Detection
-from slave.processes.worker.models.number_plate.plate_ocr import PlateOcr
-from slave.processes.worker.models.number_plate.awiros_ocr import AwirosPlateOcr
+from slave.processes.worker.models.number_plate.ppocr_v6_tiny import PpOcrV6Tiny
 from slave.processes.worker.models.number_plate.plate_tracker import PlateTracker
 
 log = get_logger(__name__)
@@ -53,19 +52,7 @@ class PlateEnricher:
         self._ocr_thread = None
         self._ocr = None
         if bool(ocr_cfg.get("enabled", True)):
-            kwargs = {}
-            if ocr_cfg.get("pad_ratios"):
-                kwargs["pad_ratios"] = tuple(
-                    tuple(p) if isinstance(p, (list, tuple)) else p
-                    for p in ocr_cfg["pad_ratios"]
-                )
-            self._ocr = (AwirosPlateOcr(
-                model_dir=ocr_cfg.get("model_dir", "slave/processes/worker/models/number_plate/awiros"),
-                device=ocr_cfg.get("device", "cpu"),
-                cpu_threads=int(ocr_cfg.get("cpu_threads", 2)),
-            ) if ocr_cfg.get("engine") == "awiros_paddle" else PlateOcr(
-                model_name=ocr_cfg.get("model_name", "cct-s-v2-global-model"), **kwargs,
-            ))
+            self._ocr = PpOcrV6Tiny(cpu_threads=int(ocr_cfg.get("cpu_threads", 2)))
             self._ocr_thread = threading.Thread(target=self._ocr_loop, name="plate-ocr", daemon=True)
             self._ocr_thread.start()
 
@@ -82,7 +69,7 @@ class PlateEnricher:
             timestamp=float(frame_timestamp),
         )
         enriched: List[Detection] = []
-        gray = (frame if isinstance(self._ocr, AwirosPlateOcr) else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)) if self._ocr is not None and pairs else None
+        gray = frame if self._ocr is not None and pairs else None
 
         for detection, track in pairs:
             interval = self._interval if track.confirmation_count else self._search_interval
