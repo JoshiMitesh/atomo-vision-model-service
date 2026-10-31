@@ -115,8 +115,9 @@ ocr:
   min_detection_hits: 1
   min_consensus_ratio: 0.60
   cpu_threads: 2
-  publish_confidence: 0.95
+  publish_confidence: 0.90
   interval_frames: 3          # Retry confirmed tracks every 3 processed frames
+  search_interval_frames: 2   # Retry unconfirmed tracks every 2 processed frames
   interval_frames: 3          # Retry confirmed tracks every 3 processed frames
   min_score: 0.80              # anpr_night has no score gate; plate_format.py does the filtering
   pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
