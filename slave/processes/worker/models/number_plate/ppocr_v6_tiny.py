@@ -1,4 +1,4 @@
-"""PP-OCRv6 Tiny recognition-only adapter for already detected plate crops.
+"""PP-OCRv6 Medium recognition-only adapter for already detected plate crops.
 
 Requires paddleocr with ONNX Runtime inference support. Model weights are
 downloaded by PaddleOCR on first use and cached for subsequent offline runs.
@@ -11,14 +11,15 @@ import numpy as np
 from slave.processes.worker.models.number_plate.plate_format import normalize_plate
 
 
-class PpOcrV6Tiny:
+class PpOcrV6Medium:
     def __init__(self, cpu_threads: int = 2, **_kwargs) -> None:
         from paddleocr import TextRecognition
         # TextRecognition performs the model's own resize/normalization and
         # CTC decoding; don't manually decode ONNX outputs with a guessed charset.
         self._model = TextRecognition(
-            model_name="PP-OCRv6_tiny_rec",
+            model_name="PP-OCRv6_medium_rec",
             engine="onnxruntime",
+            device="cpu",
         )
 
     def read_plate(self, frame: np.ndarray, bbox) -> tuple:
