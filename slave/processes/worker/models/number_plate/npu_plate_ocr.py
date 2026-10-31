@@ -1,17 +1,4 @@
-"""Plate crop preparation + OCR for the NPU (`.nb`/`.so`) number_plate
-path.
-
-Ported from the board-verified alpr_npu.py: contour-based corner
-finding that rejects untrustworthy quads (falling back to a small inset
-trapezoid), perspective warp with border replication, CLAHE + mild
-sharpen, then fast-plate-ocr's CCT text recognition -- fast-plate-ocr
-always runs on ONNX Runtime internally, so the board does not need
-paddlepaddle (no aarch64 wheel) at all.
-
-Independent of plate_ocr.py (the `.pt` path's OCR) in that each keeps
-its own recognizer instance -- both now use the same fast-plate-ocr
-backend.
-"""
+"""NPU plate crop preparation with CPU-only PP-OCRv6 Medium recognition."""
 
 from __future__ import annotations
 
@@ -132,34 +119,28 @@ def enhance_plate(image: np.ndarray) -> np.ndarray:
 
 
 class NpuPlateOcr:
-    def __init__(self, model_name: str, engine: str, out_w: int, out_h: int) -> None:
-        from fast_plate_ocr import LicensePlateRecognizer  # lazy: keeps detection-only setups free of the dependency
+    """Keep the NPU crop-preparation interface, but use the working Medium OCR."""
 
-        # `engine` is accepted for config/call-site compatibility but unused:
-        # fast_plate_ocr always runs on ONNX Runtime internally. model_name
-        # must be one of its hub_ocr_model literals (e.g. cct-s-v1-global-model),
-        # downloaded to ~/.cache/fast-plate-ocr on first use.
-        self._recognizer = LicensePlateRecognizer(hub_ocr_model=model_name)
+    def __init__(self, model_name: str, engine: str, out_w: int, out_h: int) -> None:
+        from slave.processes.worker.models.number_plate.ppocr_v6_tiny import PpOcrV6Medium
+
+        self._recognizer = PpOcrV6Medium()
         self._out_w = out_w
         self._out_h = out_h
-        log.info("plate OCR ready (model=%s)", model_name)
+        log.info("NPU plate OCR ready (PP-OCRv6 Medium, ONNX Runtime, CPU)")
 
     def read(self, crop: np.ndarray) -> Tuple[str, float]:
-        """Crop -> perspective-corrected, enhanced plate -> (text, confidence)."""
-        prepared = enhance_plate(perspective_correct(crop, self._out_w, self._out_h))
-        return self._recognize(prepared)
-
-    def _recognize(self, image: np.ndarray) -> Tuple[str, float]:
+        """Perspective-correct crop, then recognize using PP-OCRv6 Medium."""
         try:
-            # fast_plate_ocr's CCT models are trained on grayscale crops.
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            result = self._recognizer.run_one(gray, return_confidence=True)
-            text = str(result.plate or "").strip()
-            score = float(np.mean(result.char_probs)) if result.char_probs is not None and result.char_probs.size else 0.0
-            return text, score
+            prepared = enhance_plate(perspective_correct(crop, self._out_w, self._out_h))
+            h, w = prepared.shape[:2]
+            text, score, valid, _ = self._recognizer.read_plate(prepared, (0, 0, w, h))
+            return (text, score) if valid else ("", 0.0)
         except Exception:
-            log.exception("plate OCR inference failed")
+            log.exception("NPU plate OCR inference failed")
             return "", 0.0
 
     def release(self) -> None:
-        self._recognizer = None
+        if self._recognizer is not None:
+            self._recognizer.release()
+            self._recognizer = None
