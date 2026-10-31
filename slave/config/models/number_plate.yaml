@@ -116,8 +116,8 @@ ocr:
   min_consensus_ratio: 0.60
   cpu_threads: 2
   publish_confidence: 0.95
-  interval_frames: 3          # Retry confirmed tracks every 3 processed frames for changing/night crops
-  search_interval_frames: 2   # Retry unconfirmed tracks quickly; first OCR is immediate
+  interval_frames: 3          # Retry confirmed tracks every 3 processed frames
+  interval_frames: 3          # Retry confirmed tracks every 3 processed frames
   min_score: 0.80              # anpr_night has no score gate; plate_format.py does the filtering
   pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
   # Perspective-rectify output size -- npu_ocr (the .nb/.so path) only.
