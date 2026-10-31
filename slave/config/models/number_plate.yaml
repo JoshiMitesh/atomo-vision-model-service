@@ -18,7 +18,7 @@ listsize: 65          # num_classes + 64 DFL channels (confirmed from the compil
 thresholds:
   # Raised from an initial 0.35 -- live RTSP testing (alpr_rtsp.py) showed
   # false-positive plate detections at that level.
-  obj_thresh: 0.68
+  obj_thresh: 0.60
   nms_thresh: 0.45
 
 # Plate-box shape filter applied by the detector (pt and nb), ported
@@ -128,7 +128,7 @@ ocr:
   # same plate string (2 stops a single wrong read being published).
   min_confirmations: 1         # Do not hide a high-confidence read just because a second OCR pass missed
   unrecognized_after_frames: 3  # Publish No Recognition after three observations of the same track
-  validate_indian_plate: false
+  validate_indian_plate: true
 # Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
 # ported from the board-verified alpr_npu.py (npu_plate_enricher.py).
 # The .pt worker does NOT use this block; it keeps `ocr:`/`tracking:`.
