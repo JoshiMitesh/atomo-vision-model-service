@@ -116,8 +116,8 @@ ocr:
   min_consensus_ratio: 0.60
   cpu_threads: 2
   publish_confidence: 0.95
-  interval_frames: 10         # Retry OCR every 10 processed frames to protect live detection FPS
-  search_interval_frames: 10  # First OCR is immediate; retry unconfirmed tracks every 10 frames
+  interval_frames: 3          # Retry confirmed tracks every 3 processed frames for changing/night crops
+  search_interval_frames: 2   # Retry unconfirmed tracks quickly; first OCR is immediate
   min_score: 0.80              # anpr_night has no score gate; plate_format.py does the filtering
   pad_ratios: [0.10, 0.20]    # small pad variance fixes clipped first/last chars
   # Perspective-rectify output size -- npu_ocr (the .nb/.so path) only.
@@ -126,7 +126,7 @@ ocr:
   max_vote_history: 30
   # A plate is published only when this many reads agree on the exact
   # same plate string (2 stops a single wrong read being published).
-  min_confirmations: 2
+  min_confirmations: 1         # Do not hide a high-confidence read just because a second OCR pass missed
   unrecognized_after_frames: 3  # Publish No Recognition after three observations of the same track
   validate_indian_plate: false
 # Tracking + OCR + plate-number voting for the NPU (.nb/.so) workers --
