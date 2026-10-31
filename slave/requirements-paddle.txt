@@ -1,8 +1,0 @@
-# Install on PT hosts using ocr.engine: awiros_paddle
-# PaddleOCR source is cloned on first start; weights are fetched from Hugging Face.
-paddlepaddle==3.3.1
-safetensors>=0.4
-huggingface_hub>=0.25
-ultralytics>=8.2
-# PaddleOCR model source dependencies may require additional packages
-# depending on the checked-out upstream revision.
