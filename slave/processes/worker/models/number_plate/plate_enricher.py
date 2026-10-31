@@ -128,6 +128,10 @@ class PlateEnricher:
                 plate, score, valid, _ = self._ocr.read_plate(frame, bbox)
                 inference_ms = (time.perf_counter() - started_at) * 1000.0
                 log.info(
+                    "Plate OCR result: track_id=%s frame=%s plate=%r confidence=%.4f valid=%s",
+                    track.track_id, source_frame_number, plate, score, valid,
+                )
+                log.info(
                     "Plate OCR timing: track_id=%s source_frame=%s queue_wait_ms=%.1f inference_ms=%.1f total_ms=%.1f",
                     track.track_id, source_frame_number, queue_wait_ms, inference_ms,
                     (time.perf_counter() - queued_at) * 1000.0,
