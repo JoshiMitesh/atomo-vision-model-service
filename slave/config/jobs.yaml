@@ -1,49 +1,50 @@
 jobs:
-  - job_id: job_001
-    branch_id: e845c456-b123-40cf-8841-77998fa133ef
-    branch_name: Gandhinagar
-    camera_id: 1c65b29f-8fdc-4707-b0cf-ca3eaf74acd7
-    camera_name: Bhavani Char Rasta
-    camera_stream: rtsp://localhost:8554/cam07
-    zone_id: 60350dbf-a8db-42a9-b47a-3862cd0847d7
-    zone_name: office
-    latitude: 23.1277594
-    longitude: 72.4650018
-    location: Ahmedabad
-    model_assignments:
-      - model_type: number_plate
-        model_name: number_plate.pt
-        camera_model_assign_id: 27c8266c-390d-4302-85c4-a12348655920
-        model_id: ecb8e711-040d-476a-8717-9a009fe3086a
-  - job_id: job_002
-    branch_id: e845c456-b123-40cf-8841-77998fa133ef
-    branch_name: Gandhinagar
-    camera_id: 2afb061d-d01c-484f-83d2-274f5e1679be
-    camera_name: Madhuram By pass
-    camera_stream: rtsp://localhost:8554/cam06
-    zone_id: 60350dbf-a8db-42a9-b47a-3862cd0847d7
-    zone_name: office
-    latitude: 23.1277594
-    longitude: 72.4650018
-    location: Ahmedabad
-    model_assignments:
-      - model_type: number_plate
-        model_name: number_plate.pt
-        camera_model_assign_id: 9633413e-953d-47c9-a11e-4596c0daa557
-        model_id: ecb8e711-040d-476a-8717-9a009fe3086a
-  - job_id: job_003
-    branch_id: e845c456-b123-40cf-8841-77998fa133ef
-    branch_name: Gandhinagar
-    camera_id: d9bc32ed-e37c-4989-ba46-302a0a33c05a 
-    camera_name: vijay char rasta
-    camera_stream: rtsp://localhost:8554/test
-    zone_id: 60350dbf-a8db-42a9-b47a-3862cd0847d7
-    zone_name: office
-    latitude: 23.1277594
-    longitude: 72.4650018
-    location: Ahmedabad
-    model_assignments:
-      - model_type: number_plate
-        model_name: number_plate.pt
-        camera_model_assign_id: 09e97b03-111a-4b21-a002-e2e8e53b5bda
-        model_id: ecb8e711-040d-476a-8717-9a009fe3086a
+   - job_id: job_001
+     branch_id: e845c456-b123-40cf-8841-77998fa133ef
+     branch_name: Gandhinagar
+     camera_id: 1c65b29f-8fdc-4707-b0cf-ca3eaf74acd7
+     camera_name: Bhavani Char Rasta
+     camera_stream: rtsp://localhost:8554/cam07
+     zone_id: 60350dbf-a8db-42a9-b47a-3862cd0847d7
+     zone_name: office
+     latitude: 23.1277594
+     longitude: 72.4650018
+     location: Ahmedabad
+     model_assignments:
+       - model_type: number_plate
+         model_name: number_plate.pt
+         camera_model_assign_id: 27c8266c-390d-4302-85c4-a12348655920
+         model_id: ecb8e711-040d-476a-8717-9a009fe3086a
+
+   - job_id: job_002
+     branch_id: e845c456-b123-40cf-8841-77998fa133ef
+     branch_name: Gandhinagar
+     camera_id: 2afb061d-d01c-484f-83d2-274f5e1679be
+     camera_name: Bhavani Char Rasta
+     camera_stream: rtsp://localhost:8554/cam06
+     zone_id: 60350dbf-a8db-42a9-b47a-3862cd0847d7
+     zone_name: office
+     latitude: 23.1277594
+     longitude: 72.4650018
+     location: Ahmedabad
+     model_assignments:
+       - model_type: number_plate
+         model_name: number_plate.pt
+         camera_model_assign_id: 9633413e-953d-47c9-a11e-4596c0daa557
+         model_id: ecb8e711-040d-476a-8717-9a009fe3086a
+  # - job_id: job_003
+  #   branch_id: e845c456-b123-40cf-8841-77998fa133ef
+  #   branch_name: Gandhinagar
+  #   camera_id: d9bc32ed-e37c-4989-ba46-302a0a33c05a 
+  #   camera_name: vijay char rasta
+  #   camera_stream: rtsp://localhost:8554/test
+  #   zone_id: 60350dbf-a8db-42a9-b47a-3862cd0847d7
+  #   zone_name: office
+  #   latitude: 23.1277594
+  #   longitude: 72.4650018
+  #   location: Ahmedabad
+  #   model_assignments:
+  #     - model_type: number_plate
+  #       model_name: number_plate.pt
+  #       camera_model_assign_id: 09e97b03-111a-4b21-a002-e2e8e53b5bda
+  #       model_id: ecb8e711-040d-476a-8717-9a009fe3086a
