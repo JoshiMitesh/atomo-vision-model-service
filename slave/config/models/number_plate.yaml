@@ -144,11 +144,10 @@ npu_ocr:
   track_iou_threshold: 0.20    # detection<->track match (IoU)
   track_max_missed: 18         # frames a track survives without a detection
   max_history: 25              # OCR reads kept per track
-  # A plate is "stable" once it has this many valid-Indian-format reads
-  # AND total evidence >= min_stable_score (evidence = OCR conf x
-  # detection conf x 1.65 valid / 0.30 invalid, boosted for repeats).
-  min_valid_observations: 3
-  min_stable_score: 1.8
+  # For now, one valid Indian-format OCR observation is enough to publish.
+  # Keep a modest evidence floor to avoid publishing weak single-frame reads.
+  min_valid_observations: 1
+  min_stable_score: 1.0
   # true  -> plate_number is null until the plate is "stable" (reference
   #          behaviour, its "STABLE PLATE" line).
   # false -> publish the current best text as soon as it is a valid
