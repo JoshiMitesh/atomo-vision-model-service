@@ -90,7 +90,17 @@ class Publisher:
                 log.warning("NATS not connected — dropping messages on %s (sample payload=%s)", subject, json.dumps(payload))
             return
         data = json.dumps(payload).encode("utf-8") # serializes the payload to a JSON string and encodes it as bytes
-        asyncio.run_coroutine_threadsafe(self._nc.publish(subject, data), self._loop)  # schedules the publish coroutine to be run on the event loop in the background thread, allowing the message to be published to the NATS server without blocking the calling thread
+        future = asyncio.run_coroutine_threadsafe(
+            self._nc.publish(subject, data), self._loop
+        )
+
+        def _publish_done(done):
+            try:
+                done.result()
+            except Exception:
+                log.exception("NATS publish failed for subject=%s", subject)
+
+        future.add_done_callback(_publish_done)
 
     def stop(self) -> None: # stops the publisher by draining the NATS client, stopping the event loop, and joining the background thread. This method is thread-safe and can be called from any worker thread.
         """Stop the publisher, waiting for any pending messages to be sent."""

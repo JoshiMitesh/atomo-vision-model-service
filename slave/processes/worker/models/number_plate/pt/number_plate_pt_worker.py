@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 
 from slave.logging.logger import get_logger
 from slave.models.detection import group_detections
@@ -81,8 +80,6 @@ class NumberPlatePtWorker:
         self._thread = threading.Thread(
             target=self._run, name=f"number-plate-pt-{worker_key}", daemon=True
         )
-        self._speed_window_start = time.monotonic()
-        self._speed_window_frames = 0
 
     def start(self) -> None:
         self._frame_reader.start()
@@ -130,19 +127,20 @@ class NumberPlatePtWorker:
             frame.frame_id,
             frame_timestamp=frame.timestamp,
         )
-        event_plates = self._enricher.take_publishable()
-
-        # Only plates whose number was actually read are published (and
-        # uploaded) -- an unread plate would just be a null plate_number
-        # event. Video still records every detected plate.
-        readable_plates = event_plates
+        event_items = self._enricher.take_publishable()
 
         object_key = url = None
-        annotated = None
-        if plate_detections:
-            annotated = draw_detections(frame.image, plate_detections)
-        if readable_plates:
-            upload_info = self._frame_uploader.upload_frame(self._worker_key, frame.frame_id, annotated)
+        annotated = draw_detections(frame.image, plate_detections) if plate_detections else None
+        readable_plates = [item[0] for item in event_items]
+
+        # Upload the exact source frame captured with the OCR crop, not the
+        # current detector frame (which may no longer contain that plate).
+        if event_items:
+            detection, source_image, source_frame_number = event_items[-1]
+            event_image = draw_detections(source_image, [detection])
+            upload_info = self._frame_uploader.upload_frame(
+                self._worker_key, source_frame_number, event_image
+            )
             if upload_info is not None:
                 object_key, url = upload_info
 
@@ -206,23 +204,6 @@ class NumberPlatePtWorker:
         if plate_detections:
             self._video_manager.feed_frame(annotated)
 
-        # PT deliberately does not sleep to a fixed FPS. The reader keeps
-        # only the newest frame, so inference stays real-time instead of
-        # building a stale queue. Log both rates to verify live behaviour.
-        self._speed_window_frames += 1
-        elapsed = time.monotonic() - self._speed_window_start
-        if elapsed >= 2.0:
-            processing_fps = self._speed_window_frames / elapsed
-            capture_fps = self._frame_reader.get_capture_fps()
-            source_lag = max(0.0, time.time() - float(frame.timestamp))
-            self._log.info(
-                "PT speed: capture_fps=%.1f processing_fps=%.1f source_lag=%.3fs latest_frame=true",
-                capture_fps,
-                processing_fps,
-                source_lag,
-            )
-            self._speed_window_frames = 0
-            self._speed_window_start = time.monotonic()
 
     def _cleanup(self) -> None:
         # stop() and _run()'s finally block may both request cleanup.

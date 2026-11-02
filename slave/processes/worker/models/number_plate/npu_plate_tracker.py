@@ -194,12 +194,34 @@ class NpuPlateTracker:
         first) and return each detection paired with its track."""
         result: List[Optional[NpuPlateTrack]] = [None] * len(detections)
 
+        # IoU alone is brittle for small, fast-moving plates: a modest
+        # displacement between sampled frames can make two boxes non-overlap.
+        # Use IoU as the primary signal and a size-normalized center-distance
+        # fallback. The fallback is deliberately bounded and requires similar
+        # box dimensions to avoid merging nearby vehicles.
         pairs = []
         for ti, track in enumerate(self._tracks):
+            tx1, ty1, tx2, ty2 = track.box
+            tw, th = max(1.0, tx2 - tx1), max(1.0, ty2 - ty1)
+            tcx, tcy = (tx1 + tx2) / 2.0, (ty1 + ty2) / 2.0
+            tdiag = (tw * tw + th * th) ** 0.5
             for di, detection in enumerate(detections):
+                dx1, dy1, dx2, dy2 = detection.bbox
+                dw, dh = max(1.0, dx2 - dx1), max(1.0, dy2 - dy1)
+                dcx, dcy = (dx1 + dx2) / 2.0, (dy1 + dy2) / 2.0
                 iou = bbox_iou(track.box, detection.bbox)
+                ddiag = (dw * dw + dh * dh) ** 0.5
+                size_ratio = max(tw / dw, dw / tw, th / dh, dh / th)
+                center_distance = ((tcx - dcx) ** 2 + (tcy - dcy) ** 2) ** 0.5
+                distance_limit = max(36.0, 1.25 * max(tdiag, ddiag))
                 if iou >= self._iou_threshold:
-                    pairs.append((iou, ti, di))
+                    # IoU dominates; distance breaks ties between plausible matches.
+                    score = 2.0 + iou - min(center_distance / max(distance_limit, 1.0), 1.0) * 0.01
+                    pairs.append((score, ti, di))
+                elif size_ratio <= 1.8 and center_distance <= distance_limit:
+                    # Lower priority than every valid IoU match.
+                    score = 1.0 - center_distance / max(distance_limit, 1.0)
+                    pairs.append((score, ti, di))
         pairs.sort(reverse=True)
 
         matched_tracks = set()
