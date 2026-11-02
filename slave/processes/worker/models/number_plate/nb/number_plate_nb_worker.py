@@ -140,6 +140,10 @@ class NumberPlateNbWorker:
         raw_detections = self._detector.detect(frame.image)
         plate_detections = self._enricher.enrich(frame.image, raw_detections, frame.frame_id)
         event_plates = self._enricher.take_publishable()
+        self._log.info(
+            "PLATE_WORKER_EVENTS camera=%s frame=%s count=%s",
+            self._job.camera_id, frame.frame_id, len(event_plates),
+        )
 
         # Only plates whose number was actually read are published (and
         # uploaded) -- an unread plate would just be a null plate_number
@@ -183,6 +187,14 @@ class NumberPlateNbWorker:
             width=width,
             height=height,
         )
+        if result.has_detections:
+            self._log.info(
+                "PLATE_WORKER_PUBLISH camera=%s frame=%s telemetry_groups=%s instances=%s",
+                self._job.camera_id,
+                frame.frame_id,
+                len(result.telemetry),
+                sum(len(group.instances) for group in result.telemetry),
+            )
         self._detection_publisher.publish_detection(result)
 
         # Send raw boxes immediately on the live subject; recognized-plate

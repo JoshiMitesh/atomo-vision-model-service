@@ -73,7 +73,23 @@ class NpuPlateEnricher:
                     track.add_ocr(raw_text, raw_conf)
 
             best_text, best_conf, stable, _ = track.get_best_result()
-            publish = bool(best_text) and (stable if self._publish_only_stable else is_indian_plate(best_text))
+            valid = bool(best_text) and is_indian_plate(best_text)
+            publish = valid and (stable if self._publish_only_stable else True)
+
+            log.info(
+                "PLATE_DECISION track=%s age=%s ocr_attempted=%s "
+                "best_text=%r confidence=%.4f stable=%s publish=%s "
+                "published=%s event_published=%s",
+                track.track_id,
+                track.age,
+                ocr_attempted,
+                best_text,
+                best_conf,
+                stable,
+                publish,
+                track.published,
+                track.detection_event_published,
+            )
 
             enriched_detection = replace(
                 detection,
@@ -85,29 +101,24 @@ class NpuPlateEnricher:
             )
             enriched.append(enriched_detection)
 
-            # Emit the first event only after OCR has had a chance to run.
-            # An unreadable plate is still a real detection and is published
-            # with a null plate_number. If later OCR becomes stable, publish
-            # another event containing the recognized number.
-            # Publish a readable/stable result immediately. Only emit
-            # "No Recognition" after three observations of this same plate.
+            # Publish persistent events only for valid, stable plate numbers.
             if publish and not track.published:
                 track.published = True
                 track.detection_event_published = True
                 self._publish_queue.append(enriched_detection)
-            elif (
-                not publish
-                and not track.detection_event_published
-                and track.age >= self._unrecognized_after_frames
-                and ocr_attempted
-            ):
-                track.detection_event_published = True
-                self._publish_queue.append(enriched_detection)
+                log.info(
+                    "PLATE_EVENT_QUEUED status=recognized track=%s age=%s "
+                    "plate=%s confidence=%.4f queue_size=%s",
+                    track.track_id, track.age, best_text, best_conf,
+                    len(self._publish_queue),
+                )
         return enriched
 
     def take_publishable(self) -> List[Detection]:
         queued = self._publish_queue
         self._publish_queue = []
+        if queued:
+            log.info("PLATE_EVENT_QUEUE_DRAINED count=%s", len(queued))
         return queued
 
     def _read_plate(self, frame: np.ndarray, bbox: Tuple[float, float, float, float]) -> Tuple[str, float]:

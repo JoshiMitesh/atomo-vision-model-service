@@ -10,7 +10,7 @@ device_id: 0b8f67b2-a699-434f-9ca2-e2206cd9f7b3
 device_name: neha-zbook
 password: '1234'
 device_role: slave
-ip: 192.168.1.38
+ip: 192.168.1.16
 dns_name: neha-zbook.local
 mac_id: '40:EC:99:B6:58:55'
 serial_no: SN-99B65855

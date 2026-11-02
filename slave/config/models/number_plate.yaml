@@ -139,7 +139,7 @@ npu_ocr:
   # Runtime internally -- kept only for backward config compatibility.
   # If OCR fails to initialise the job still runs detection-only.
   engine: onnxruntime
-  min_ocr_conf: 0.90           # raw OCR reads below this are ignored
+  min_ocr_conf: 0.80           # raw OCR reads below this are ignored
   interval_frames: 3           # bound OCR CPU per camera while preserving repeated evidence
   track_iou_threshold: 0.20    # detection<->track match (IoU)
   track_max_missed: 18         # frames a track survives without a detection
